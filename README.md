@@ -265,5 +265,3 @@ contract CertificateVerify {
 This project is built for academic purposes as part of a university mini-project at REVA University.
 
 ---
-
-**Built with ❤️ by Group No. 5 — Aryan · Jagan · Anurag**
