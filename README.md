@@ -1,12 +1,7 @@
 # RecruitAI — AI Resume Screening with Blockchain Certificate Verification
 
-> **Group No. 5** · REVA University  
-> **Team:** Aryan · Jagan · Anurag
-
 A full-stack web application that combines **AI-powered resume screening** (TF-IDF + Cosine Similarity) with **blockchain-based certificate verification** (SHA-256 + Ethereum Smart Contracts).
-
 Recruiters upload PDF resumes, define a job description, and the system ranks candidates by relevance. Certificates can be stored on and verified against a local Ethereum blockchain (Ganache), with per-candidate linking so you know whose certificate was verified.
-
 ---
 
 ## Screenshots
