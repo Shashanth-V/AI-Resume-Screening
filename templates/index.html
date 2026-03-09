@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>RecruitAI — Dashboard</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet"/>
+  <link href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@400,500,700,800&f[]=general-sans@400,500,600,700&display=swap" rel="stylesheet"/>
+  <link href="/static/style.css" rel="stylesheet"/>
+</head>
+<body>
+
+<!-- ═══ ANIMATED BACKGROUND ORBS ═══ -->
+<div class="bg-orbs" aria-hidden="true">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+</div>
+
+<!-- ═══ NAVBAR ═══ -->
+<nav class="navbar" id="navbar">
+  <div class="nav-inner">
+    <a class="nav-brand" href="/">
+      <div class="brand-icon"><i class="fas fa-brain"></i></div>
+      <span>RecruitAI</span>
+    </a>
+    <div class="nav-tabs" id="navTabs">
+      <button class="nav-tab active" data-tab="resume"><i class="fas fa-file-alt"></i><span>Resume Screening</span></button>
+      <button class="nav-tab" data-tab="cert"><i class="fas fa-link"></i><span>Certificates</span></button>
+      <button class="nav-tab" data-tab="dash"><i class="fas fa-chart-bar"></i><span>Dashboard</span></button>
+    </div>
+    <div class="nav-user">
+      <div class="user-avatar" id="userAvatar"></div>
+      <span class="user-name" id="userName">{{ user_name }}</span>
+      <button class="btn-logout" onclick="doLogout()" title="Sign out"><i class="fas fa-sign-out-alt"></i></button>
+    </div>
+    <button class="nav-burger" id="navBurger"><i class="fas fa-bars"></i></button>
+  </div>
+</nav>
+
+<!-- ═══ TOAST CONTAINER ═══ -->
+<div class="toast-container" id="toastBox"></div>
+
+<!-- ═══ CONTENT ═══ -->
+<main class="main-content">
+
+  <!-- ─────── TAB 1 : RESUME SCREENING ─────── -->
+  <section class="tab-pane active" id="pane-resume">
+    <!-- Hero -->
+    <div class="section-hero anim-fade" style="--d:0">
+      <h1 class="hero-title">AI-Powered <span class="gradient-text">Resume Screening</span></h1>
+      <p class="hero-sub">Upload resumes, define your ideal candidate, and let our TF-IDF engine rank them instantly.</p>
+    </div>
+
+    <div class="grid-2col anim-fade" style="--d:1">
+      <!-- LEFT: Job Description -->
+      <div class="glass-card">
+        <div class="card-header">
+          <i class="fas fa-briefcase"></i>
+          <h3>Job Description</h3>
+        </div>
+        <div class="textarea-wrap">
+          <textarea id="jobDesc" class="dark-input ta" rows="8" placeholder="Paste the job description here. E.g.: We are looking for a Python developer with 3+ years experience in Flask, REST APIs, PostgreSQL, Docker, and AWS. Strong communication skills required."></textarea>
+          <span class="char-count" id="jdCount">0 characters</span>
+        </div>
+        <div class="tag-suggestions">
+          <span class="tag-label">Quick add:</span>
+          <button class="skill-tag" onclick="appendSkill('Python')">Python</button>
+          <button class="skill-tag" onclick="appendSkill('Machine Learning')">Machine Learning</button>
+          <button class="skill-tag" onclick="appendSkill('React')">React</button>
+          <button class="skill-tag" onclick="appendSkill('AWS')">AWS</button>
+          <button class="skill-tag" onclick="appendSkill('Docker')">Docker</button>
+          <button class="skill-tag" onclick="appendSkill('SQL')">SQL</button>
+          <button class="skill-tag" onclick="appendSkill('Java')">Java</button>
+          <button class="skill-tag" onclick="appendSkill('Node.js')">Node.js</button>
+        </div>
+      </div>
+
+      <!-- RIGHT: Upload Zone -->
+      <div class="glass-card">
+        <div class="card-header">
+          <i class="fas fa-cloud-upload-alt"></i>
+          <h3>Upload Resumes</h3>
+          <span class="file-badge" id="fileBadge" style="display:none">0 PDFs</span>
+        </div>
+        <div class="drop-zone" id="dropZone">
+          <input type="file" id="fileInput" multiple accept=".pdf" />
+          <div class="dz-content">
+            <div class="dz-icon"><i class="fas fa-cloud-upload-alt"></i></div>
+            <p class="dz-title">Drag &amp; drop PDFs here</p>
+            <p class="dz-sub">or <span class="dz-link">browse files</span> · PDF only, max 10 files</p>
+          </div>
+        </div>
+
+        <!-- File chips -->
+        <div class="file-chips" id="fileChips"></div>
+
+        <!-- Clear all (hidden by default) -->
+        <button class="btn-clear-all" id="btnClearAll" style="display:none" onclick="clearAllFiles()">
+          <i class="fas fa-trash-alt"></i> Clear All
+        </button>
+
+        <!-- Analyze -->
+        <button class="btn-primary btn-full" id="btnAnalyze" disabled onclick="analyzeResumes()">
+          <span class="btn-label"><i class="fas fa-sparkles"></i> Analyze Resumes</span>
+          <span class="btn-loading" style="display:none">
+            <span class="btn-spin"></span> Analyzing…
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div id="resultsArea" class="anim-fade" style="display:none;--d:2">
+      <div class="results-header">
+        <h3><i class="fas fa-trophy"></i> Ranking Results</h3>
+        <div class="results-actions">
+          <button class="btn-ghost" onclick="reAnalyze()"><i class="fas fa-redo"></i> Re-analyze</button>
+          <button class="btn-ghost" onclick="exportCSV()"><i class="fas fa-download"></i> Export CSV</button>
+        </div>
+      </div>
+      <div class="results-grid" id="resultsGrid"></div>
+    </div>
+  </section>
+
+  <!-- ─────── TAB 2 : CERTIFICATE VERIFICATION ─────── -->
+  <section class="tab-pane" id="pane-cert">
+    <div class="section-hero anim-fade" style="--d:0">
+      <h1 class="hero-title">Blockchain <span class="gradient-text">Certificate Verification</span></h1>
+      <p class="hero-sub">Store &amp; verify certificate authenticity using SHA-256 hashing and Ethereum smart contracts.</p>
+    </div>
+
+    <!-- Blockchain status -->
+    <div class="bc-status-bar anim-fade" style="--d:1" id="bcStatusBar">
+      <span class="bc-dot" id="bcDot"></span>
+      <span id="bcLabel">Checking blockchain…</span>
+    </div>
+
+    <!-- Candidate Selector -->
+    <div class="glass-card anim-fade" style="--d:1.5" id="candidateSelectorCard">
+      <div class="card-header">
+        <i class="fas fa-user-tag"></i>
+        <h3>Select Candidate</h3>
+      </div>
+      <p class="card-desc">Choose which candidate this certificate belongs to. Analyzed resumes appear here automatically.</p>
+      <select class="dark-select full-w" id="certCandidate">
+        <option value="">— Select a candidate —</option>
+      </select>
+    </div>
+
+    <div class="grid-2col anim-fade" style="--d:2">
+      <!-- STORE -->
+      <div class="glass-card">
+        <div class="card-header">
+          <i class="fas fa-database"></i>
+          <h3>Store Certificate</h3>
+        </div>
+        <p class="card-desc">Upload a certificate to store its SHA-256 hash immutably on the blockchain.</p>
+        <div class="cert-upload" id="storeUploadZone">
+          <div class="cert-upload-inner" id="storeUploadInner">
+            <i class="fas fa-file-upload"></i>
+            <span>Choose file (PDF / Image)</span>
+            <input type="file" id="storeFileInput" accept=".pdf,image/*" onchange="handleCertFile('store')"/>
+          </div>
+        </div>
+        <div class="cert-file-preview" id="storeFilePreview" style="display:none">
+          <div class="cfp-info">
+            <i class="fas fa-file"></i>
+            <span class="cfp-name" id="storeFileName"></span>
+          </div>
+          <button class="cfp-remove" onclick="removeCertFile('store')"><i class="fas fa-times"></i></button>
+        </div>
+        <button class="btn-primary btn-full mt-1" onclick="storeCert()">
+          <i class="fas fa-cube"></i> Store on Blockchain
+        </button>
+        <div class="cert-result" id="storeResult"></div>
+      </div>
+
+      <!-- VERIFY -->
+      <div class="glass-card">
+        <div class="card-header">
+          <i class="fas fa-check-double"></i>
+          <h3>Verify Certificate</h3>
+        </div>
+        <p class="card-desc">Upload a certificate to check if its hash exists on the blockchain ledger.</p>
+        <div class="cert-upload" id="verifyUploadZone">
+          <div class="cert-upload-inner" id="verifyUploadInner">
+            <i class="fas fa-file-upload"></i>
+            <span>Choose file (PDF / Image)</span>
+            <input type="file" id="verifyFileInput" accept=".pdf,image/*" onchange="handleCertFile('verify')"/>
+          </div>
+        </div>
+        <div class="cert-file-preview" id="verifyFilePreview" style="display:none">
+          <div class="cfp-info">
+            <i class="fas fa-file"></i>
+            <span class="cfp-name" id="verifyFileName"></span>
+          </div>
+          <button class="cfp-remove" onclick="removeCertFile('verify')"><i class="fas fa-times"></i></button>
+        </div>
+        <button class="btn-primary btn-full mt-1" onclick="verifyCert()">
+          <i class="fas fa-search"></i> Verify Now
+        </button>
+        <div class="cert-result" id="verifyResult"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────── TAB 3 : DASHBOARD ─────── -->
+  <section class="tab-pane" id="pane-dash">
+    <div class="section-hero anim-fade" style="--d:0">
+      <h1 class="hero-title">Recruiter <span class="gradient-text">Dashboard</span></h1>
+      <p class="hero-sub">At-a-glance overview of your screening activity and certificate verifications.</p>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="stat-row anim-fade" style="--d:1">
+      <div class="glass-card stat-card">
+        <div class="stat-icon bg-accent"><i class="fas fa-file-alt"></i></div>
+        <div class="stat-body">
+          <div class="stat-value" id="dStatResumes" data-target="0">0</div>
+          <div class="stat-label">Resumes Analyzed</div>
+        </div>
+        <div class="sparkline" id="spark1"></div>
+      </div>
+      <div class="glass-card stat-card">
+        <div class="stat-icon bg-purple"><i class="fas fa-star"></i></div>
+        <div class="stat-body">
+          <div class="stat-value" id="dStatTop">—</div>
+          <div class="stat-label">Top Match Score</div>
+        </div>
+        <div class="sparkline" id="spark2"></div>
+      </div>
+      <div class="glass-card stat-card">
+        <div class="stat-icon bg-accent"><i class="fas fa-certificate"></i></div>
+        <div class="stat-body">
+          <div class="stat-value" id="dStatCerts" data-target="0">0</div>
+          <div class="stat-label">Certificates Verified</div>
+        </div>
+        <div class="sparkline" id="spark3"></div>
+      </div>
+      <div class="glass-card stat-card">
+        <div class="stat-icon bg-amber"><i class="fas fa-hourglass-half"></i></div>
+        <div class="stat-body">
+          <div class="stat-value" id="dStatPending">0</div>
+          <div class="stat-label">Pending Verifications</div>
+        </div>
+        <div class="sparkline" id="spark4"></div>
+      </div>
+    </div>
+
+    <!-- Filters + Table -->
+    <div class="glass-card anim-fade" style="--d:2">
+      <div class="dash-toolbar">
+        <h3><i class="fas fa-list-ol"></i> Candidate Ranking</h3>
+        <div class="dash-filters">
+          <div class="filter-group">
+            <label>Min Score</label>
+            <input type="range" id="filterScore" min="0" max="100" value="0" oninput="applyFilters()"/>
+            <span id="filterScoreVal">0%</span>
+          </div>
+          <div class="filter-group">
+            <label>Cert Status</label>
+            <select id="filterCert" class="dark-select" onchange="applyFilters()">
+              <option value="all">All</option>
+              <option value="verified">Verified</option>
+              <option value="pending">Pending</option>
+            </select>
+          </div>
+          <button class="btn-ghost" onclick="exportCSV()"><i class="fas fa-download"></i> Export CSV</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="dash-table" id="dashTable">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Candidate</th>
+              <th>Score</th>
+              <th>Match</th>
+              <th>Certificate</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="dashBody">
+            <tr class="empty-row"><td colspan="6"><div class="empty-state"><i class="fas fa-inbox"></i><p>No resumes analyzed yet</p><span>Upload resumes in the Resume Screening tab to see results here.</span></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ═══ FOOTER ═══ -->
+<footer class="app-footer">
+  <div class="footer-inner">
+    <span><strong>Group No. 5</strong> · REVA University · AI Resume Screening with Blockchain Verification</span>
+    <span class="footer-names">Aryan · Jagan · Anurag</span>
+  </div>
+</footer>
+
+<!-- ═══ VERIFY OVERLAY ═══ -->
+<div class="verify-overlay" id="verifyOverlay" onclick="closeVerifyOverlay(event)">
+  <div class="verify-modal" id="verifyModal"></div>
+</div>
+
+<!-- ═══ CONFETTI CANVAS ═══ -->
+<canvas id="confettiCanvas"></canvas>
+
+<script src="/static/app.js"></script>
+<script>
+  // Initialize user avatar
+  const uname = '{{ user_name }}';
+  if (uname) {
+    document.getElementById('userAvatar').textContent = uname.charAt(0).toUpperCase();
+    document.getElementById('userName').textContent = uname;
+  }
+</script>
+</body>
+</html>

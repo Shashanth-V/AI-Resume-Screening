@@ -1,0 +1,7 @@
+Flask
+PyPDF2
+scikit-learn
+nltk
+web3
+python-dotenv
+bcrypt

@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>RecruitAI — Sign In</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet"/>
+  <link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@300,400,500,700&display=swap" rel="stylesheet"/>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    :root{--bg:#0a0a0a;--bg2:#111;--surface:#181818;--accent:#00f5c4;--accent2:#00c49a;--accent-dim:rgba(0,245,196,.08);--text:#f0f0f0;--text2:#888;--danger:#ff4d4d;--border:rgba(255,255,255,.06)}
+    html,body{height:100%;font-family:'Satoshi',sans-serif;background:var(--bg);color:var(--text)}
+
+    /* ═══ LAYOUT ═══ */
+    .auth-shell{display:flex;height:100vh;overflow:hidden}
+
+    /* LEFT PANEL — branding / hero */
+    .hero-panel{flex:0 0 48%;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;background:#060606}
+    @media(max-width:900px){.hero-panel{display:none}}
+
+    /* Animated mesh gradient */
+    .mesh{position:absolute;inset:0;background:
+      radial-gradient(ellipse at 20% 50%,rgba(0,245,196,.14) 0%,transparent 60%),
+      radial-gradient(ellipse at 80% 20%,rgba(124,58,237,.10) 0%,transparent 55%),
+      radial-gradient(ellipse at 60% 80%,rgba(0,180,220,.08) 0%,transparent 50%);
+      animation:meshShift 12s ease-in-out infinite alternate}
+    @keyframes meshShift{0%{filter:hue-rotate(0deg)}100%{filter:hue-rotate(25deg)}}
+
+    /* Grid dots */
+    .hero-panel::before{content:'';position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.04) 1px,transparent 1px);background-size:32px 32px;z-index:1}
+
+    /* Floating particles */
+    .particle{position:absolute;border-radius:50%;background:var(--accent);opacity:.12;z-index:1;animation:floatP 8s ease-in-out infinite}
+    .p1{width:6px;height:6px;top:20%;left:15%;animation-delay:0s;animation-duration:7s}
+    .p2{width:4px;height:4px;top:60%;left:25%;animation-delay:1.5s;animation-duration:9s}
+    .p3{width:8px;height:8px;top:35%;left:70%;animation-delay:3s;animation-duration:6s}
+    .p4{width:5px;height:5px;top:75%;left:60%;animation-delay:2s;animation-duration:11s}
+    .p5{width:3px;height:3px;top:15%;left:80%;animation-delay:4s;animation-duration:8s}
+    .p6{width:7px;height:7px;top:85%;left:40%;animation-delay:1s;animation-duration:10s}
+    @keyframes floatP{0%,100%{transform:translate(0,0)}25%{transform:translate(15px,-20px)}50%{transform:translate(-10px,-35px)}75%{transform:translate(20px,-15px)}}
+
+    /* Hero content */
+    .hero-content{position:relative;z-index:2;text-align:center;padding:3rem}
+    .hero-logo{width:72px;height:72px;border-radius:18px;background:linear-gradient(135deg,var(--accent),#00b89c);display:inline-flex;align-items:center;justify-content:center;font-size:1.8rem;color:#000;margin-bottom:1.5rem;box-shadow:0 12px 40px rgba(0,245,196,.18)}
+    .hero-content h1{font-family:'Clash Display',sans-serif;font-size:2.6rem;font-weight:700;line-height:1.15;color:#fff;margin-bottom:.6rem}
+    .hero-content h1 span{background:linear-gradient(135deg,var(--accent),#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .hero-content p{color:var(--text2);font-size:1rem;max-width:360px;margin:0 auto 2.5rem;line-height:1.6}
+
+    /* Feature pills */
+    .feature-pills{display:flex;flex-wrap:wrap;justify-content:center;gap:.5rem}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:.45rem .9rem;border-radius:99px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text2);font-size:.78rem;font-weight:500;backdrop-filter:blur(8px)}
+    .pill i{color:var(--accent);font-size:.7rem}
+
+    /* RIGHT PANEL — form */
+    .form-panel{flex:1;display:flex;align-items:center;justify-content:center;position:relative;padding:2rem}
+
+    /* Grain overlay */
+    .form-panel::before{content:'';position:absolute;inset:0;opacity:.025;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");pointer-events:none}
+
+    .form-wrapper{width:100%;max-width:400px;position:relative;z-index:1}
+
+    /* Mobile header */
+    .mobile-brand{display:none;text-align:center;margin-bottom:2rem}
+    .mobile-brand .hero-logo{width:48px;height:48px;font-size:1.2rem;margin-bottom:.8rem}
+    .mobile-brand h2{font-family:'Clash Display',sans-serif;font-size:1.3rem;color:#fff}
+    @media(max-width:900px){.mobile-brand{display:block}}
+
+    /* Form header */
+    .form-header{margin-bottom:2rem}
+    .form-header h2{font-family:'Clash Display',sans-serif;font-size:1.7rem;font-weight:700;color:#fff;margin-bottom:.3rem}
+    .form-header p{color:var(--text2);font-size:.88rem}
+
+    /* Tabs */
+    .auth-toggle{display:flex;gap:0;background:var(--surface);border-radius:12px;padding:4px;margin-bottom:2rem;border:1px solid var(--border)}
+    .auth-toggle button{flex:1;padding:.6rem;border:none;border-radius:9px;background:transparent;color:var(--text2);font-family:'Satoshi',sans-serif;font-weight:600;font-size:.85rem;cursor:pointer;transition:all .25s}
+    .auth-toggle button.active{background:var(--accent);color:#000;box-shadow:0 4px 16px rgba(0,245,196,.2)}
+
+    /* Panels */
+    .panel{display:none;animation:panelIn .3s ease}
+    .panel.active{display:block}
+    @keyframes panelIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+    /* Form fields */
+    .field{margin-bottom:1.3rem;position:relative}
+    .field label{display:block;font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text2);margin-bottom:.5rem}
+    .input-box{position:relative;display:flex;align-items:center}
+    .input-box i.icon{position:absolute;left:0;color:var(--text2);font-size:.8rem;transition:color .25s}
+    .input-box input,.input-box select{width:100%;background:transparent;border:none;border-bottom:1.5px solid var(--border);padding:.6rem 0 .6rem 1.6rem;color:var(--text);font-family:'Satoshi',sans-serif;font-size:.92rem;outline:none;transition:border-color .3s}
+    .input-box input::placeholder{color:rgba(255,255,255,.2)}
+    .input-box input:focus,.input-box select:focus{border-bottom-color:var(--accent)}
+    .input-box input:focus ~ i.icon,.input-box select:focus ~ i.icon{color:var(--accent)}
+    .input-box select{-webkit-appearance:none;appearance:none;cursor:pointer}
+    .input-box select option{background:var(--bg2);color:var(--text)}
+    .pw-toggle{position:absolute;right:0;background:none;border:none;color:var(--text2);cursor:pointer;padding:6px;font-size:.82rem;transition:color .2s}
+    .pw-toggle:hover{color:var(--accent)}
+
+    /* Inline error */
+    .field-err{font-size:.73rem;color:var(--danger);margin-top:.35rem;display:none;align-items:center;gap:4px}
+    .field-err.show{display:flex}
+    @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+    .field.error .input-box input{border-bottom-color:var(--danger);animation:shake .4s ease}
+
+    /* Password strength */
+    .pw-meter{display:flex;gap:3px;margin-top:.5rem}
+    .pw-seg{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.06);transition:background .3s}
+    .pw-seg.weak{background:#ff4d4d}
+    .pw-seg.med{background:#f5a623}
+    .pw-seg.strong{background:var(--accent)}
+    .pw-hint{font-size:.68rem;color:var(--text2);margin-top:3px}
+
+    /* Remember me */
+    .remember{display:flex;align-items:center;gap:8px;margin-bottom:1.5rem}
+    .remember input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+    .remember label{font-size:.82rem;color:var(--text2);cursor:pointer}
+
+    /* Submit */
+    .btn-auth{width:100%;padding:.85rem;border:none;border-radius:12px;font-family:'Satoshi',sans-serif;font-weight:700;font-size:.95rem;cursor:pointer;position:relative;overflow:hidden;transition:all .3s;display:flex;align-items:center;justify-content:center;gap:8px}
+    .btn-auth.primary{background:linear-gradient(135deg,var(--accent),#00b89c);color:#000;box-shadow:0 6px 24px rgba(0,245,196,.18)}
+    .btn-auth.primary:hover{transform:translateY(-2px);box-shadow:0 10px 36px rgba(0,245,196,.28)}
+    .btn-auth:disabled{opacity:.45;cursor:not-allowed;transform:none!important}
+
+    /* Ripple */
+    .btn-auth .ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,.25);transform:scale(0);animation:rippleAnim .5s ease-out}
+    @keyframes rippleAnim{to{transform:scale(4);opacity:0}}
+
+    /* Spinner */
+    .btn-spin{width:18px;height:18px;border:2.5px solid transparent;border-top-color:currentColor;border-radius:50%;animation:spin .6s linear infinite;display:none}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* Form error banner */
+    .form-alert{padding:.7rem 1rem;border-radius:10px;font-size:.82rem;display:none;align-items:center;gap:8px;margin-bottom:1.2rem}
+    .form-alert.error{background:rgba(255,77,77,.08);border:1px solid rgba(255,77,77,.15);color:var(--danger)}
+    .form-alert.show{display:flex}
+
+    /* Divider */
+    .divider{display:flex;align-items:center;gap:12px;margin:1.5rem 0;color:var(--text2);font-size:.75rem}
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--border)}
+
+    /* Switch prompt */
+    .switch-prompt{text-align:center;color:var(--text2);font-size:.82rem}
+    .switch-prompt a{color:var(--accent);text-decoration:none;font-weight:600;cursor:pointer}
+    .switch-prompt a:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+
+<div class="auth-shell">
+
+  <!-- ═══ LEFT: HERO PANEL ═══ -->
+  <div class="hero-panel">
+    <div class="mesh"></div>
+    <div class="particle p1"></div><div class="particle p2"></div><div class="particle p3"></div>
+    <div class="particle p4"></div><div class="particle p5"></div><div class="particle p6"></div>
+
+    <div class="hero-content">
+      <div class="hero-logo"><i class="fas fa-brain"></i></div>
+      <h1>Hire <span>Smarter</span>.<br/>Trust <span>More</span>.</h1>
+      <p>AI-powered resume screening paired with blockchain certificate verification — a single platform for modern recruiting.</p>
+      <div class="feature-pills">
+        <span class="pill"><i class="fas fa-check"></i>TF-IDF Analysis</span>
+        <span class="pill"><i class="fas fa-check"></i>Cosine Similarity</span>
+        <span class="pill"><i class="fas fa-check"></i>SHA-256 Hashing</span>
+        <span class="pill"><i class="fas fa-check"></i>Smart Contracts</span>
+        <span class="pill"><i class="fas fa-check"></i>Real-time Ranking</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ RIGHT: FORM PANEL ═══ -->
+  <div class="form-panel">
+    <div class="form-wrapper">
+
+      <!-- Mobile-only brand -->
+      <div class="mobile-brand">
+        <div class="hero-logo"><i class="fas fa-brain"></i></div>
+        <h2>RecruitAI</h2>
+      </div>
+
+      <!-- Tab toggle -->
+      <div class="auth-toggle">
+        <button class="active" onclick="switchPanel('login')">Sign In</button>
+        <button onclick="switchPanel('register')">Create Account</button>
+      </div>
+
+      <!-- ── LOGIN ── -->
+      <div class="panel active" id="pnl-login">
+        <div class="form-header">
+          <h2>Welcome back</h2>
+          <p>Enter your credentials to continue</p>
+        </div>
+        <div class="form-alert error" id="loginAlert"><i class="fas fa-exclamation-circle"></i><span></span></div>
+        <form onsubmit="doLogin(event)" autocomplete="on">
+          <div class="field" id="fLoginEmail">
+            <label>Email Address</label>
+            <div class="input-box">
+              <input type="email" id="loginEmail" placeholder="name@company.com" required autocomplete="email"/>
+              <i class="icon fas fa-envelope"></i>
+            </div>
+            <div class="field-err" id="errLoginEmail"><i class="fas fa-exclamation-circle"></i><span></span></div>
+          </div>
+          <div class="field" id="fLoginPass">
+            <label>Password</label>
+            <div class="input-box">
+              <input type="password" id="loginPass" placeholder="Enter password" required autocomplete="current-password"/>
+              <i class="icon fas fa-lock"></i>
+              <button type="button" class="pw-toggle" onclick="toggleVis('loginPass',this)"><i class="fas fa-eye"></i></button>
+            </div>
+          </div>
+          <div class="remember">
+            <input type="checkbox" id="rememberMe"/>
+            <label for="rememberMe">Remember me</label>
+          </div>
+          <button type="submit" class="btn-auth primary" id="btnLogin" onclick="ripple(event)">
+            <span class="btn-spin" id="spinLogin"></span>
+            <span class="btn-label">Sign In</span>
+            <i class="fas fa-arrow-right"></i>
+          </button>
+        </form>
+        <div class="divider">New to RecruitAI?</div>
+        <p class="switch-prompt">Don't have an account? <a onclick="switchPanel('register')">Create one free</a></p>
+      </div>
+
+      <!-- ── REGISTER ── -->
+      <div class="panel" id="pnl-register">
+        <div class="form-header">
+          <h2>Create account</h2>
+          <p>Start screening resumes in minutes</p>
+        </div>
+        <div class="form-alert error" id="regAlert"><i class="fas fa-exclamation-circle"></i><span></span></div>
+        <form onsubmit="doRegister(event)" autocomplete="on">
+          <div class="field" id="fRegName">
+            <label>Full Name</label>
+            <div class="input-box">
+              <input type="text" id="regName" placeholder="John Doe" required autocomplete="name"/>
+              <i class="icon fas fa-user"></i>
+            </div>
+          </div>
+          <div class="field" id="fRegEmail">
+            <label>Email Address</label>
+            <div class="input-box">
+              <input type="email" id="regEmail" placeholder="name@company.com" required autocomplete="email"/>
+              <i class="icon fas fa-envelope"></i>
+            </div>
+            <div class="field-err" id="errRegEmail"><i class="fas fa-exclamation-circle"></i><span></span></div>
+          </div>
+          <div class="field" id="fRegRole">
+            <label>Role</label>
+            <div class="input-box">
+              <select id="regRole">
+                <option value="recruiter">Recruiter</option>
+                <option value="hr_admin">HR Admin</option>
+              </select>
+              <i class="icon fas fa-briefcase"></i>
+            </div>
+          </div>
+          <div class="field" id="fRegPass">
+            <label>Password</label>
+            <div class="input-box">
+              <input type="password" id="regPass" placeholder="Min. 6 characters" required autocomplete="new-password" oninput="meterStrength(this.value)"/>
+              <i class="icon fas fa-lock"></i>
+              <button type="button" class="pw-toggle" onclick="toggleVis('regPass',this)"><i class="fas fa-eye"></i></button>
+            </div>
+            <div class="pw-meter"><div class="pw-seg" id="s1"></div><div class="pw-seg" id="s2"></div><div class="pw-seg" id="s3"></div><div class="pw-seg" id="s4"></div></div>
+            <div class="pw-hint" id="pwHint"></div>
+          </div>
+          <div class="field" id="fRegPass2">
+            <label>Confirm Password</label>
+            <div class="input-box">
+              <input type="password" id="regPass2" placeholder="Re-enter password" required autocomplete="new-password"/>
+              <i class="icon fas fa-shield-alt"></i>
+            </div>
+            <div class="field-err" id="errRegPass2"><i class="fas fa-exclamation-circle"></i><span></span></div>
+          </div>
+          <button type="submit" class="btn-auth primary" id="btnReg" onclick="ripple(event)" style="margin-top:.5rem">
+            <span class="btn-spin" id="spinReg"></span>
+            <span class="btn-label">Create Account</span>
+            <i class="fas fa-user-plus"></i>
+          </button>
+        </form>
+        <div class="divider">Already registered?</div>
+        <p class="switch-prompt">Have an account? <a onclick="switchPanel('login')">Sign in</a></p>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══ Panel switch ═══ */
+function switchPanel(t){
+  document.querySelectorAll('.auth-toggle button').forEach((b,i)=>b.classList.toggle('active',i===(t==='login'?0:1)));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('pnl-'+t).classList.add('active');
+  hideAlerts();
+}
+function hideAlerts(){document.querySelectorAll('.form-alert').forEach(a=>{a.classList.remove('show');a.querySelector('span').textContent=''});document.querySelectorAll('.field').forEach(f=>f.classList.remove('error'));document.querySelectorAll('.field-err').forEach(e=>e.classList.remove('show'))}
+function showAlert(id,msg){const el=document.getElementById(id);el.querySelector('span').textContent=msg;el.classList.add('show')}
+function showFieldErr(fieldId,errId,msg){document.getElementById(fieldId).classList.add('error');const e=document.getElementById(errId);e.querySelector('span').textContent=msg;e.classList.add('show')}
+
+/* ═══ Password visibility ═══ */
+function toggleVis(id,btn){const inp=document.getElementById(id);const show=inp.type==='password';inp.type=show?'text':'password';btn.querySelector('i').className=show?'fas fa-eye-slash':'fas fa-eye'}
+
+/* ═══ Strength meter ═══ */
+function meterStrength(v){
+  const segs=[document.getElementById('s1'),document.getElementById('s2'),document.getElementById('s3'),document.getElementById('s4')];
+  const hint=document.getElementById('pwHint');
+  segs.forEach(s=>s.className='pw-seg');hint.textContent='';
+  if(!v)return;
+  let sc=0;if(v.length>=6)sc++;if(v.length>=10)sc++;if(/[A-Z]/.test(v)&&/[a-z]/.test(v))sc++;if(/\d/.test(v)&&/[^a-zA-Z0-9]/.test(v))sc++;
+  const labels=['','Weak','Fair','Good','Strong'],cls=['','weak','med','strong','strong'];
+  for(let i=0;i<sc;i++)segs[i].classList.add(cls[sc]);
+  hint.textContent=labels[sc];
+}
+
+/* ═══ Ripple effect ═══ */
+function ripple(e){
+  const btn=e.currentTarget;const circle=document.createElement('span');
+  circle.className='ripple';const r=btn.getBoundingClientRect();
+  const size=Math.max(r.width,r.height);circle.style.width=circle.style.height=size+'px';
+  circle.style.left=(e.clientX-r.left-size/2)+'px';circle.style.top=(e.clientY-r.top-size/2)+'px';
+  btn.appendChild(circle);setTimeout(()=>circle.remove(),600);
+}
+
+/* ═══ Login ═══ */
+async function doLogin(e){
+  e.preventDefault();hideAlerts();
+  const email=document.getElementById('loginEmail').value.trim();
+  const pass=document.getElementById('loginPass').value;
+  if(!email){showFieldErr('fLoginEmail','errLoginEmail','Email is required');return}
+  const btn=document.getElementById('btnLogin');const sp=document.getElementById('spinLogin');
+  btn.disabled=true;sp.style.display='inline-block';
+  try{
+    const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pass})});
+    const d=await r.json();
+    if(!r.ok){showAlert('loginAlert',d.error||'Invalid credentials');return}
+    document.querySelector('.auth-shell').style.transition='opacity .4s';
+    document.querySelector('.auth-shell').style.opacity='0';
+    setTimeout(()=>{window.location.href='/'},350);
+  }catch(err){showAlert('loginAlert','Network error — please try again')}
+  finally{btn.disabled=false;sp.style.display='none'}
+}
+
+/* ═══ Register ═══ */
+async function doRegister(e){
+  e.preventDefault();hideAlerts();
+  const name=document.getElementById('regName').value.trim();
+  const email=document.getElementById('regEmail').value.trim();
+  const pass=document.getElementById('regPass').value;
+  const pass2=document.getElementById('regPass2').value;
+  if(pass.length<6){showAlert('regAlert','Password must be at least 6 characters');return}
+  if(pass!==pass2){showFieldErr('fRegPass2','errRegPass2','Passwords do not match');return}
+  const btn=document.getElementById('btnReg');const sp=document.getElementById('spinReg');
+  btn.disabled=true;sp.style.display='inline-block';
+  try{
+    const r=await fetch('/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fullname:name,email,password:pass})});
+    const d=await r.json();
+    if(!r.ok){showAlert('regAlert',d.error||'Registration failed');return}
+    document.querySelector('.auth-shell').style.transition='opacity .4s';
+    document.querySelector('.auth-shell').style.opacity='0';
+    setTimeout(()=>{window.location.href='/'},350);
+  }catch(err){showAlert('regAlert','Network error — please try again')}
+  finally{btn.disabled=false;sp.style.display='none'}
+}
+</script>
+</body>
+</html>

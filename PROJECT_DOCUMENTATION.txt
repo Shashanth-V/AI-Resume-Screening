@@ -1,0 +1,854 @@
+================================================================================
+  RecruitAI — AI Resume Screening with Blockchain Certificate Verification
+  Complete Project Documentation
+================================================================================
+  Group No. 5 | REVA University
+  Team: Aryan · Jagan · Anurag
+================================================================================
+
+
+TABLE OF CONTENTS
+─────────────────
+  1. Project Overview
+  2. System Architecture
+  3. Technology Stack
+  4. Directory Structure
+  5. Backend — app.py
+  6. Authentication System — auth.html
+  7. Main Dashboard SPA — index.html
+  8. Frontend Logic — app.js
+  9. Styling — style.css
+  10. Blockchain Module — web3_connect.py
+  11. Smart Contract — CertificateVerify.sol
+  12. Database Design
+  13. API Endpoints Reference
+  14. Feature Details
+  15. How to Run
+
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+RecruitAI is a full-stack web application that combines:
+  (a) AI-powered resume screening using TF-IDF and cosine similarity
+  (b) Blockchain-based certificate verification using Ethereum smart contracts
+
+Recruiters can upload multiple PDF resumes, define a job description, and the
+system ranks candidates based on text similarity. Certificates can be stored
+on and verified against a blockchain ledger using SHA-256 hashing.
+
+The app features a premium dark-themed UI with glassmorphism, animated
+backgrounds, session-based authentication, and a recruiter dashboard that
+accumulates results across multiple analysis sessions.
+
+
+================================================================================
+2. SYSTEM ARCHITECTURE
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              USER (Browser)                                │
+│  ┌──────────────┐  ┌───────────────────┐  ┌────────────────────────────┐   │
+│  │  auth.html   │  │    index.html     │  │       app.js + style.css   │   │
+│  │ (Login/Reg)  │  │ (3-Tab SPA)       │  │    (Frontend Logic + UI)   │   │
+│  └──────┬───────┘  └────────┬──────────┘  └─────────────┬──────────────┘   │
+│         │                   │                            │                  │
+└─────────┼───────────────────┼────────────────────────────┼──────────────────┘
+          │  HTTP/JSON        │  HTTP/JSON + FormData      │
+          ▼                   ▼                            ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         FLASK BACKEND (app.py)                             │
+│                                                                             │
+│  ┌──────────────┐  ┌──────────────────┐  ┌──────────────────────────────┐  │
+│  │  Auth Routes  │  │  Resume Routes   │  │   Certificate Routes        │  │
+│  │  /register    │  │  /upload-resume  │  │   /store-certificate        │  │
+│  │  /login       │  │  (TF-IDF +       │  │   /verify-certificate       │  │
+│  │  /logout      │  │   Cosine Sim)    │  │   /blockchain-status        │  │
+│  │  /me          │  │                  │  │                              │  │
+│  └──────┬───────┘  └──────────────────┘  └──────────────┬───────────────┘  │
+│         │                                                │                  │
+│         ▼                                                ▼                  │
+│  ┌──────────────┐                            ┌────────────────────────┐     │
+│  │   SQLite DB  │                            │  blockchain/           │     │
+│  │  (users.db)  │                            │  web3_connect.py       │     │
+│  │  - users     │                            │  (Web3.py interface)   │     │
+│  └──────────────┘                            └───────────┬────────────┘     │
+│                                                          │                  │
+└──────────────────────────────────────────────────────────┼──────────────────┘
+                                                           │  JSON-RPC
+                                                           ▼
+                                              ┌────────────────────────┐
+                                              │   Ganache Blockchain   │
+                                              │   (localhost:7545)     │
+                                              │                        │
+                                              │  CertificateVerify.sol │
+                                              │  - addCertificate()    │
+                                              │  - verifyCertificate() │
+                                              └────────────────────────┘
+
+
+DATA FLOW — Resume Screening:
+  1. User uploads PDFs + job description via browser
+  2. app.js builds FormData, sends POST to /upload-resume
+  3. Flask extracts text from each PDF using PyPDF2
+  4. Text is cleaned (lowercase, remove stopwords, strip symbols)
+  5. TF-IDF vectorizer creates term-frequency vectors
+  6. Cosine similarity computed between JD vector and each resume
+  7. Results ranked by score (descending), accumulated in session
+  8. JSON response sent back; app.js renders result cards + dashboard
+
+DATA FLOW — Certificate Verification:
+  1. User uploads a certificate file (PDF/image)
+  2. File bytes → SHA-256 hash computed server-side
+  3. Hash sent to smart contract via Web3.py
+  4. For STORE: transaction sent to addCertificate(hash)
+  5. For VERIFY: read-only call to verifyCertificate(hash) → bool
+  6. Result (verified/not found) shown in UI overlay
+
+
+================================================================================
+3. TECHNOLOGY STACK
+================================================================================
+
+BACKEND:
+  - Python 3.13
+  - Flask (web framework, session management, routing)
+  - SQLite3 (user authentication database)
+  - werkzeug.security (password hashing — generate/check_password_hash)
+  - PyPDF2 (PDF text extraction)
+  - scikit-learn (TF-IDF Vectorizer + cosine similarity)
+  - NLTK (English stopwords removal)
+  - Web3.py (Ethereum blockchain interaction)
+  - hashlib (SHA-256 hashing for certificates)
+
+FRONTEND:
+  - HTML5 / CSS3 / JavaScript (ES6+)
+  - Custom CSS (no Bootstrap — fully hand-crafted dark theme)
+  - Font Awesome 6.5.1 (icons)
+  - Fontshare CDN (Cabinet Grotesk, General Sans, Clash Display, Satoshi)
+  - Canvas API (confetti animation)
+  - Clipboard API (copy-to-clipboard for hashes)
+  - Fetch API (AJAX communication)
+
+BLOCKCHAIN:
+  - Solidity ^0.8.0 (smart contract language)
+  - Ganache (local Ethereum blockchain — localhost:7545)
+  - Web3.py (Python ↔ Ethereum bridge)
+
+DATABASE:
+  - SQLite3 (users.db — serverless, file-based)
+
+
+================================================================================
+4. DIRECTORY STRUCTURE
+================================================================================
+
+D:\MINIPROJECT\
+│
+├── app.py                          # Flask backend (all routes + logic)
+├── requirements.txt                # Python dependencies
+├── users.db                        # SQLite database (auto-created)
+├── PROJECT_DOCUMENTATION.txt       # This file
+│
+├── templates\
+│   ├── auth.html                   # Login/Register page (standalone)
+│   └── index.html                  # Main 3-tab SPA dashboard
+│
+├── static\
+│   ├── style.css                   # Complete CSS for index.html
+│   └── app.js                      # Complete JS for index.html
+│
+├── blockchain\
+│   ├── __init__.py                 # Package init (empty)
+│   └── web3_connect.py             # Web3.py ↔ Ganache interface
+│
+├── contracts\
+│   └── CertificateVerify.sol       # Solidity smart contract
+│
+└── uploads\                        # Uploaded resume PDFs (auto-created)
+
+
+================================================================================
+5. BACKEND — app.py (271 lines)
+================================================================================
+
+The Flask backend is the core of the application. It handles:
+
+5.1 APP SETUP
+  - Secret key generated via secrets.token_hex(32) for session security
+  - Upload folder created at ./uploads/
+  - SQLite database path set to ./users.db
+  - NLTK stopwords auto-downloaded if not present
+  - Allowed file extensions restricted to PDF only
+
+5.2 DATABASE HELPERS
+  - get_db(): Opens a per-request SQLite connection stored in Flask's g object
+  - close_db(): Teardown function that closes the DB after each request
+  - init_db(): Creates the "users" table on first run (called at import time)
+
+5.3 AUTH DECORATOR
+  - login_required(f): A decorator that checks if "user_id" exists in the
+    session. If not, redirects to /auth. Applied to all protected routes.
+
+5.4 HELPER FUNCTIONS
+  - allowed_file(filename): Validates PDF extension
+  - extract_text_from_pdf(file_storage): Reads all pages via PyPDF2.PdfReader
+  - clean_text(raw): Lowercases text, strips non-alphanumeric chars, removes
+    English stopwords using NLTK
+  - sha256_hash(file_bytes): Returns hex SHA-256 digest of raw bytes
+
+5.5 AUTH ROUTES
+  - GET /auth — Renders the login/register page
+  - POST /register — Creates user account (validates fields, hashes password,
+    checks for duplicate email, auto-logins on success)
+  - POST /login — Authenticates user (email lookup, password verification,
+    sets session variables: user_id, user_name, user_email)
+  - POST /logout — Clears all session data
+  - GET /me — Returns current user info from session
+
+5.6 RESUME ANALYSIS ROUTE
+  POST /upload-resume:
+    1. Receives job_description (text) + resumes[] (PDF files) as FormData
+    2. Validates that JD is not empty and at least one PDF is provided
+    3. For each PDF: saves to uploads/, extracts text, cleans text
+    4. Builds a corpus: [cleaned_jd, cleaned_resume1, cleaned_resume2, ...]
+    5. Applies TF-IDF Vectorizer to create term-frequency matrix
+    6. Computes cosine similarity between JD vector (index 0) and all resume
+       vectors (index 1..n)
+    7. Creates results list with filename + score (0-100%)
+    8. Sorts by score descending, assigns ranks
+    9. ACCUMULATES results into session["results"] (does NOT overwrite)
+    10. Re-ranks the entire cumulative list
+    11. Returns { results (current batch), all_results (cumulative) }
+
+5.7 CERTIFICATE ROUTES
+  POST /store-certificate:
+    - Reads uploaded file → SHA-256 hash → calls web3_connect.store_certificate()
+    - Returns { hash, tx_hash, status }
+
+  POST /verify-certificate:
+    - Reads uploaded file → SHA-256 hash → calls web3_connect.verify_certificate()
+    - Returns { hash, status: "Verified" or "Fake/Not Found" }
+    - Increments session["total_certs"] on successful verification
+
+  GET /blockchain-status:
+    - Checks if Ganache is reachable → returns { connected: true/false }
+
+5.8 DASHBOARD DATA ROUTE
+  GET /dashboard-data:
+    - Returns all session-persisted data:
+      { results (cumulative array), total_resumes (count), total_certs (count) }
+
+
+================================================================================
+6. AUTHENTICATION SYSTEM — auth.html (231 lines)
+================================================================================
+
+A standalone page with all CSS and JS embedded (no external dependencies
+except Font Awesome and Fontshare fonts).
+
+6.1 LAYOUT
+  Split-screen design:
+  - LEFT PANEL (48% width): Branding hero
+    * Animated mesh gradient background (radial gradients with hue-rotate)
+    * 6 floating CSS particles (circles with float animation)
+    * Grid dot overlay pattern
+    * Brain logo icon with gradient background
+    * Tagline: "Hire Smarter. Trust More."
+    * Description text
+    * 5 feature pills: TF-IDF Analysis, Cosine Similarity, SHA-256 Hashing,
+      Smart Contracts, Real-time Ranking
+    * Hidden on mobile (< 900px)
+
+  - RIGHT PANEL (52% width): Auth forms
+    * Grain texture overlay (SVG noise filter)
+    * Toggle tabs: "Sign In" / "Create Account"
+
+6.2 LOGIN FORM
+  - Email field with envelope icon + validation
+  - Password field with lock icon + show/hide toggle
+  - "Remember me" checkbox (UI only)
+  - Submit button with ripple effect + loading spinner
+  - Error alert banner for failed attempts
+
+6.3 REGISTER FORM
+  - Full Name field
+  - Email field
+  - Role dropdown (Recruiter / HR Admin — UI only)
+  - Password field with STRENGTH METER:
+    * 4-segment bar (weak / fair / good / strong)
+    * Scores: +1 for length >= 6, +1 for mixed case, +1 for digit, +1 for
+      special char. Colors: red / orange / amber / green
+    * Text hint below showing strength level
+  - Confirm Password field with match validation
+  - Submit button with ripple + spinner
+
+6.4 ANIMATIONS & UX
+  - Panel switch animation (fadeIn keyframe)
+  - Field error: red border + shake animation + error message
+  - Button ripple: expanding circle from click point
+  - Success flow: entire page fades out (opacity 0 + translateY) then
+    redirects to main dashboard (/)
+  - Responsive: on mobile (< 900px), hero panel hidden, mobile brand shown
+
+
+================================================================================
+7. MAIN DASHBOARD SPA — index.html (196 lines)
+================================================================================
+
+The main application page after login. A single-page app with 3 tabs.
+
+7.1 GLOBAL ELEMENTS
+  - 3 animated background orbs (fixed position, blurred gradient circles)
+  - Sticky navbar with glassmorphism (blur + semi-transparent bg)
+    * Brand: brain icon + "RecruitAI"
+    * 3 tab buttons: Resume Screening, Certificates, Dashboard
+    * User avatar (first letter of name) + display name + logout button
+    * Mobile: burger menu that toggles tab visibility
+  - Toast notification container (top-right corner)
+  - Footer: "Group No. 5 · REVA University" + team names
+  - Confetti canvas (full-screen, pointer-events none)
+  - Verify overlay modal (fullscreen backdrop + centered card)
+
+7.2 TAB 1 — RESUME SCREENING
+  Hero title: "AI-Powered Resume Screening"
+
+  Two-column layout:
+  LEFT CARD — Job Description:
+    - Textarea with placeholder example
+    - Character count display
+    - 8 quick-add skill tags: Python, Machine Learning, React, AWS, Docker,
+      SQL, Java, Node.js (click to append to textarea)
+
+  RIGHT CARD — Upload Resumes:
+    - Drag & drop zone (click or drag PDFs)
+    - File chips area: each file shown as a chip with PDF icon, filename,
+      file size in KB, and ❌ remove button
+    - Badge showing "N PDFs" count
+    - "Clear All" button (visible when 2+ files)
+    - "Analyze Resumes" button (disabled until files + JD present)
+
+  RESULTS AREA (hidden until first analysis):
+    - Header with trophy icon + "Ranking Results"
+    - Re-analyze button + Export CSV button
+    - Results grid: cards for each resume with rank, score ring, label
+
+7.3 TAB 2 — CERTIFICATE VERIFICATION
+  Hero title: "Blockchain Certificate Verification"
+
+  Blockchain status bar: animated dot + connection label
+
+  Two-column layout:
+  LEFT CARD — Store Certificate:
+    - File upload zone (PDF or image)
+    - File preview with remove button
+    - "Store on Blockchain" button
+    - Result area: shows SHA-256 hash (copyable) + transaction hash
+
+  RIGHT CARD — Verify Certificate:
+    - File upload zone (PDF or image)
+    - File preview with remove button
+    - "Verify Now" button
+    - Result area: shows verification status
+
+7.4 TAB 3 — RECRUITER DASHBOARD
+  Hero title: "Recruiter Dashboard"
+
+  4 stat cards (responsive grid):
+    1. Resumes Analyzed — count with sparkline
+    2. Top Match Score — percentage with sparkline
+    3. Certificates Verified — count with sparkline
+    4. Pending Verifications — count with sparkline
+
+  Filters toolbar:
+    - Min Score range slider (0-100%)
+    - Certificate Status dropdown (All / Verified / Pending)
+    - Export CSV button
+
+  Candidate Ranking Table:
+    - Columns: Rank, Candidate, Score, Match (bar chart), Certificate
+      (badge), Actions (verify button)
+    - Shows ALL accumulated results across multiple analyses
+    - Sorted by score descending, re-ranked after filtering
+    - Empty state message when no results
+
+
+================================================================================
+8. FRONTEND LOGIC — app.js (574 lines)
+================================================================================
+
+Complete JavaScript engine for the SPA.
+
+8.1 GLOBAL STATE
+  - selectedFiles[] — Array of File objects for resume upload
+  - lastResults[] — Results from the most recent analysis batch
+  - allResults[] — Cumulative results across ALL analyses (persists in session)
+  - totalResumes — Total resumes analyzed (counter)
+  - totalCerts — Total certificates verified (counter)
+
+8.2 TOAST SYSTEM — showToast(message, type)
+  Creates a toast notification div, appends to #toastBox.
+  Types: success (green), error (red), info (purple).
+  Auto-removes after 3.5 seconds with slide-out animation.
+  Manual dismiss via ✕ button.
+
+8.3 TAB NAVIGATION
+  Event listeners on all .nav-tab buttons.
+  Switches active state on tabs and corresponding .tab-pane sections.
+  Automatically loads dashboard data when switching to "dash" tab.
+  Automatically checks blockchain status when switching to "cert" tab.
+  Mobile burger menu toggle for responsive nav.
+
+8.4 LOGOUT — doLogout()
+  POSTs to /logout, then redirects to /auth.
+
+8.5 JOB DESCRIPTION — appendSkill(skill)
+  Appends skill text to the #jobDesc textarea with comma separator.
+  Triggers input event to update character count.
+  Shows info toast "Python added" etc.
+
+8.6 FILE UPLOAD & MANAGEMENT
+  Drag-and-drop zone with visual feedback (drag-over class).
+  Click-to-browse via hidden file input.
+
+  - addFiles(fileList): Iterates FileList, validates PDF MIME type, enforces
+    max 10 files, deduplicates by name+size, pushes to selectedFiles[].
+    Shows shake animation + error toast on non-PDF files.
+
+  - removeFile(idx): Splices single file from selectedFiles[], re-renders
+    chips, shows "File removed" toast.
+
+  - clearAllFiles(): Empties selectedFiles[], re-renders, shows toast.
+
+  - renderChips(): Builds HTML for each file as a "chip" with PDF icon,
+    truncated filename, file size in KB, and remove ✕ button. Updates
+    badge count and Clear All button visibility.
+
+  - updateAnalyzeBtn(): Enables the analyze button only when both files and
+    job description text are present.
+
+8.7 RESUME ANALYSIS — analyzeResumes()
+  1. Disables button, shows loading spinner
+  2. Builds FormData with job_description + all files from selectedFiles[]
+  3. POSTs to /upload-resume
+  4. On success:
+     - Updates lastResults (current batch) and allResults (cumulative)
+     - Updates totalResumes counter
+     - Calls renderResultCards() for the current batch
+     - Shows results area
+     - Launches confetti animation
+     - Shows success toast with batch + total counts
+  5. On error: shows error toast
+  6. Re-enables button, hides spinner
+
+  reAnalyze(): Hides current results, calls analyzeResumes() again.
+
+8.8 RESULT CARDS — renderResultCards(results)
+  For each result, creates a card containing:
+  - Rank number (#1, #2, etc.)
+  - Filename
+  - Score label (Excellent ≥70%, Good ≥40%, Average ≥20%, Poor <20%)
+  - SVG circular progress ring:
+    * 76px radius circle, stroke-dasharray = circumference
+    * Animated stroke-dashoffset from full to (1 - score%) × circumference
+    * Color: green ≥70%, amber ≥40%, red <40%
+  - Score percentage text in center of ring
+  - Staggered slide-in animation (delay based on index)
+  - First card gets special "top-card" class with gold accent
+
+8.9 CERTIFICATE FILE HANDLING
+  - handleCertFile(type): Called on file input change for "store" or "verify".
+    Hides the upload zone, shows file preview (icon + name + remove button).
+
+  - removeCertFile(type): Resets file input, hides preview, shows upload zone.
+
+8.10 STORE CERTIFICATE — storeCert()
+  1. Gets file from #storeFileInput
+  2. Validates file is selected
+  3. Builds FormData, POSTs to /store-certificate
+  4. On success: shows SHA-256 hash (with copy button) + transaction hash +
+     "Stored on Blockchain" badge. Shows success toast.
+  5. On error (blockchain offline): shows error HTML + toast
+
+8.11 VERIFY CERTIFICATE — verifyCert()
+  1. Gets file from #verifyFileInput
+  2. Validates file is selected
+  3. Builds FormData, POSTs to /verify-certificate
+  4. On success: opens verify OVERLAY MODAL showing:
+     - Large animated icon (shield-check for verified, exclamation for not)
+     - Status text: "Certificate Verified!" or "Certificate Not Found"
+     - SHA-256 hash (copyable)
+     - Close button
+  5. If verified: increments totalCerts, shows success toast
+  6. If not verified: shows warning toast
+
+  closeVerifyOverlay(e): Closes modal when clicking backdrop or close button.
+
+8.12 COPY HASH — copyHash(btn, text)
+  Uses navigator.clipboard.writeText() to copy hash to clipboard.
+  Temporarily changes button icon from copy to checkmark for 1.5 seconds.
+
+8.13 BLOCKCHAIN STATUS — checkBlockchain()
+  GETs /blockchain-status.
+  Updates the status bar: green pulsing dot + "Connected to Ganache" or
+  red dot + "Blockchain Offline". Called on page load and cert tab switch.
+
+8.14 DASHBOARD — loadDashboard()
+  1. GETs /dashboard-data from Flask session
+  2. Merges server data with local state (allResults, totalResumes, totalCerts)
+  3. Calls renderDashboard()
+
+  renderDashboard():
+  - Animated counters for all 4 stat cards (count from 0 to target over 1.2s)
+  - Top Match Score shown as percentage
+  - Pending = total results - verified certs
+  - Renders sparklines for each stat card
+  - Renders the full candidate ranking table with ALL cumulative results
+
+8.15 ANIMATED COUNTERS — animateCounter(id, target)
+  Increments a DOM element's textContent from 0 to target over 1.2 seconds
+  using setInterval (60fps update rate).
+
+8.16 SPARKLINES — renderSparkline(id, data)
+  Creates an inline SVG polyline chart from a 9-point data array.
+  Points mapped to 0-100 viewBox. Stroke: semi-transparent accent color.
+
+  generateSparkData(seed): Creates 9 random data points around a seed value
+  for visual variety in sparklines.
+
+8.17 DASHBOARD TABLE — renderDashTable(results) + applyFilters()
+  - Takes ALL cumulative results
+  - Applies filters: minimum score slider + certificate status dropdown
+  - Sorts filtered results by score DESCENDING
+  - Re-ranks (assigns #1, #2, #3... based on new filtered order)
+  - Renders table rows with: rank badge, filename, score %, colored score
+    bar (green ≥70%, amber ≥40%, red <40%), certificate badge (Pending),
+    action button (switch to cert tab)
+  - Shows empty state if no results match filters
+
+8.18 CSV EXPORT — exportCSV()
+  Generates a CSV string from allResults (or lastResults as fallback).
+  Columns: Rank, Candidate, Match Score (%).
+  Creates a Blob, generates object URL, triggers download as
+  "recruitai_results.csv". Shows success toast.
+
+8.19 CONFETTI — launchConfetti()
+  Creates 120 confetti particles on a full-screen canvas.
+  6 colors: accent, purple, amber, red, blue, white.
+  Each particle: random position, velocity, rotation, rectangular shape.
+  Animates 150 frames with gravity (vy += 0.12 per frame).
+  Canvas hidden after animation completes.
+
+8.20 INITIALIZATION
+  On page load: loadDashboard() is called to pre-fetch session data.
+
+
+================================================================================
+9. STYLING — style.css (660 lines)
+================================================================================
+
+Complete dark-theme CSS for the main dashboard.
+
+9.1 DESIGN TOKENS (CSS Custom Properties)
+  --bg:        #080c14    (deep navy-black background)
+  --surface:   #0f172a    (card/component backgrounds)
+  --glass:     rgba(15,23,42,.55) (glassmorphism fill)
+  --accent:    #00d4aa    (primary green/teal)
+  --purple:    #7c3aed    (secondary purple)
+  --text:      #e2e8f0    (primary text — light gray)
+  --text2:     #64748b    (secondary text — muted)
+  --danger:    #ff4d4d    (error/remove red)
+  --amber:     #f5a623    (warning/medium score)
+
+9.2 ANIMATED BACKGROUND ORBS
+  3 fixed-position blurred circles with subtle movement animation:
+  - Orb 1: 500px, accent-colored, top-left, 14s animation
+  - Orb 2: 400px, purple-colored, bottom-right, 18s animation
+  - Orb 3: 300px, blue-colored, center, 16s animation
+  @keyframes orbFloat: translate + scale oscillation
+
+9.3 GRID DOT OVERLAY
+  body::before pseudo-element creates a fixed dot pattern using
+  radial-gradient, 36px spacing, very subtle (2% opacity).
+
+9.4 NAVBAR
+  Sticky top, glassmorphism (backdrop-filter: blur(20px)), 85% opacity bg.
+  Flex layout: brand | tabs | user info.
+  Active tab: accent color underline + text color.
+  Responsive: tabs collapse to column on mobile, burger button shown.
+
+9.5 TOAST SYSTEM
+  Fixed position top-right, z-index 9999.
+  Each toast: glass background, left colored border (green/red/purple),
+  slide-in from right animation. Auto-dismiss with fade-out.
+
+9.6 GLASS CARDS
+  Core UI component. Semi-transparent background with backdrop-filter blur,
+  subtle border, rounded corners (16px). Hover: slight lift (translateY -2px)
+  + intensified shadow.
+
+9.7 DROP ZONE
+  Dashed 2px border, rounded corners. States:
+  - Default: dashed border, upload icon
+  - Drag-over: accent border + accent background glow
+  - Shake: horizontal shake animation on invalid file
+
+9.8 FILE CHIPS
+  Inline-flex flex-wrap container. Each chip: dark background, rounded,
+  PDF icon (red), filename, size in KB, remove ✕ button (hover: red).
+
+9.9 BUTTONS
+  - btn-primary: Accent gradient background, shadow, hover lift + shadow
+  - btn-ghost: Transparent with accent border, hover fills accent
+  - btn-clear-all: Danger-colored, hover fills red
+  - Disabled state: 40% opacity, no pointer events
+  - Loading spinner: rotating circle animation
+
+9.10 RESULT CARDS
+  Flex cards with staggered slide-in animation (delay via CSS variable).
+  Top card (#1): gold left border, subtle gold background glow.
+  Each card contains: rank badge, filename, label, SVG score ring.
+  Score ring: SVG circle with animated stroke-dashoffset transition (1.5s).
+
+9.11 CERTIFICATE PANELS
+  Upload zones, file previews, result areas.
+  Hash boxes: dark background, monospace font, copy button.
+  Result badges: .cert-ok (green), .cert-fail (red).
+
+9.12 BLOCKCHAIN STATUS BAR
+  Inline pill with animated dot.
+  Connected: green dot with pulse animation (box-shadow expansion).
+  Disconnected: red dot, no pulse.
+
+9.13 VERIFY OVERLAY MODAL
+  Fullscreen fixed backdrop with blur.
+  Centered modal card with scale-in entrance animation.
+  Large icon (animated check or exclamation), status text, hash, close button.
+
+9.14 DASHBOARD
+  Stat cards: 4-column grid (responsive: 2-col at 900px, 1-col at 500px).
+  Each: colored icon circle, value + label, inline SVG sparkline.
+  Toolbar: flex with filters and export button.
+  Table: separated border rows, uppercase accent headers, hover highlight,
+  inline score bars, pill badges.
+
+9.15 RESPONSIVE BREAKPOINTS
+  - 900px: 2-column grids → 1-column, navbar tabs collapse, stat row 2-col
+  - 768px: Additional layout adjustments
+  - 500px: Stat row → 1-column, footer centers, table font shrinks
+
+9.16 PRINT STYLES
+  @media print: hides navbar, footer, buttons, orbs, toasts, confetti canvas.
+  White background, black text for printable output.
+
+
+================================================================================
+10. BLOCKCHAIN MODULE — web3_connect.py (98 lines)
+================================================================================
+
+Python interface between Flask and the Ethereum blockchain (Ganache).
+
+10.1 CONFIGURATION
+  - GANACHE_URL: "http://127.0.0.1:7545" (local Ganache instance)
+  - CONTRACT_ADDRESS: "0x0000..." (placeholder — must be updated after
+    deploying the smart contract)
+  - CONTRACT_ABI: JSON array matching CertificateVerify.sol interface
+    (constructor, CertificateAdded event, addCertificate, owner,
+    verifyCertificate)
+
+10.2 INTERNAL HELPERS
+  - _get_web3(): Creates Web3 instance with HTTPProvider. Returns None on error.
+  - _get_contract(w3): Returns Contract object at CONTRACT_ADDRESS with ABI.
+
+10.3 PUBLIC FUNCTIONS
+
+  check_connection():
+    Attempts w3.is_connected(). Returns True/False.
+    Used by /blockchain-status endpoint.
+
+  store_certificate(cert_hash):
+    1. Connects to Ganache
+    2. Gets default account (accounts[0])
+    3. Calls contract.functions.addCertificate(cert_hash)
+    4. Sends transaction, waits for receipt
+    5. Returns { hash, tx_hash (hex), status: "Stored successfully" }
+    6. On failure: returns { error: message }
+
+  verify_certificate(cert_hash):
+    1. Connects to Ganache
+    2. Calls contract.functions.verifyCertificate(cert_hash).call()
+    3. Returns { hash, status: "Verified" } or { hash, status: "Fake/Not Found" }
+    4. On failure: returns { error: message }
+
+
+================================================================================
+11. SMART CONTRACT — CertificateVerify.sol (43 lines)
+================================================================================
+
+Solidity smart contract deployed on Ganache for certificate hash storage.
+
+11.1 CONTRACT DETAILS
+  - Pragma: ^0.8.0
+  - License: MIT
+  - State variables:
+    * address public owner — set to msg.sender (deployer) in constructor
+    * mapping(string => bool) private certificates — stores hash existence
+
+11.2 MODIFIER
+  - onlyOwner(): Requires msg.sender == owner. Used on addCertificate.
+
+11.3 EVENT
+  - CertificateAdded(string hash, uint256 timestamp): Emitted when a
+    certificate hash is stored.
+
+11.4 FUNCTIONS
+  - constructor(): Sets owner to deployer address.
+  - addCertificate(string memory _hash): (public, onlyOwner)
+    * Requires hash not already stored
+    * Sets certificates[_hash] = true
+    * Emits CertificateAdded event
+
+  - verifyCertificate(string memory _hash): (public, view)
+    * Returns bool: certificates[_hash]
+    * Read-only — no gas cost
+
+
+================================================================================
+12. DATABASE DESIGN
+================================================================================
+
+SQLite database: users.db (auto-created on first run)
+
+TABLE: users
+┌─────────────┬──────────┬──────────────────────┐
+│ Column       │ Type     │ Constraints           │
+├─────────────┼──────────┼──────────────────────┤
+│ id           │ INTEGER  │ PRIMARY KEY AUTO      │
+│ fullname     │ TEXT     │ NOT NULL              │
+│ email        │ TEXT     │ NOT NULL UNIQUE       │
+│ password     │ TEXT     │ NOT NULL (hashed)     │
+│ created_at   │ TIMESTAMP│ DEFAULT CURRENT       │
+└─────────────┴──────────┴──────────────────────┘
+
+Passwords stored as werkzeug PBKDF2:SHA256 hashes (never plaintext).
+
+SESSION DATA (Flask server-side, cookie-based):
+  - user_id: integer
+  - user_name: string
+  - user_email: string
+  - results: list of dicts (cumulative resume analysis results)
+  - total_resumes: integer count
+  - total_certs: integer count
+
+
+================================================================================
+13. API ENDPOINTS REFERENCE
+================================================================================
+
+┌──────────────────────┬────────┬──────┬─────────────────────────────────────┐
+│ Endpoint              │ Method │ Auth │ Description                         │
+├──────────────────────┼────────┼──────┼─────────────────────────────────────┤
+│ /auth                 │ GET    │ No   │ Render login/register page          │
+│ /register             │ POST   │ No   │ Create account (JSON body)          │
+│ /login                │ POST   │ No   │ Authenticate user (JSON body)       │
+│ /logout               │ POST   │ No   │ Clear session                       │
+│ /me                   │ GET    │ Yes  │ Get current user info               │
+│ /                     │ GET    │ Yes  │ Render main dashboard               │
+│ /upload-resume        │ POST   │ Yes  │ Analyze resumes (FormData)          │
+│ /store-certificate    │ POST   │ Yes  │ Store cert hash on blockchain       │
+│ /verify-certificate   │ POST   │ Yes  │ Verify cert hash on blockchain      │
+│ /blockchain-status    │ GET    │ Yes  │ Check Ganache connectivity          │
+│ /dashboard-data       │ GET    │ Yes  │ Get session-persisted dashboard data│
+└──────────────────────┴────────┴──────┴─────────────────────────────────────┘
+
+
+================================================================================
+14. FEATURE DETAILS
+================================================================================
+
+14.1 AI RESUME SCREENING
+  Algorithm: TF-IDF (Term Frequency-Inverse Document Frequency) + Cosine
+  Similarity. The job description and all resume texts form a corpus. TF-IDF
+  vectorization converts text to numerical vectors. Cosine similarity measures
+  the angle between the JD vector and each resume vector (0% = no match,
+  100% = perfect match). Results are accumulated across multiple analysis
+  sessions — uploading 5 resumes, then 5 more, shows all 10 ranked together.
+
+14.2 CUMULATIVE RANKING
+  Each analysis appends new results to the session (never overwrites).
+  The entire cumulative list is re-sorted by score descending and re-ranked.
+  The dashboard table shows ALL candidates ever analyzed in the session,
+  not just the last batch.
+
+14.3 FILE MANAGEMENT (UPLOAD + REMOVE)
+  Uses a JavaScript array (selectedFiles[]) instead of native FileList.
+  This enables individual file removal (FileList is read-only by design).
+  Each file appears as a chip with ❌ remove button. Clear All button
+  appears when 2+ files are selected. Max 10 files enforced.
+
+14.4 BLOCKCHAIN CERTIFICATE VERIFICATION
+  Files are hashed client→server using SHA-256. The hash (not the file) is
+  stored on the blockchain via a Solidity smart contract. Verification
+  checks if the hash exists on-chain. This proves the certificate has not
+  been tampered with since storage. The app works in "offline mode" for
+  AI features even without Ganache running.
+
+14.5 AUTHENTICATION
+  Session-based auth using Flask sessions + SQLite. Passwords hashed with
+  werkzeug's PBKDF2:SHA256. Login required decorator protects all main
+  routes. Auto-login after registration.
+
+14.6 RESPONSIVE DESIGN
+  Three breakpoints: 900px, 768px, 500px.
+  Mobile: hero panel hidden on auth, navbar collapses to burger menu,
+  grids become single-column, stat cards adjust, table font shrinks.
+  Print stylesheet hides UI chrome for clean output.
+
+14.7 ANIMATIONS
+  - Background orbs: floating + scaling (14-18s cycles)
+  - Auth mesh gradient: hue-rotate animation
+  - Floating particles: multi-point movement paths
+  - Tab content: fade-up with stagger (CSS animation-delay)
+  - Result cards: slide-in with stagger
+  - Score rings: animated stroke-dashoffset (1.5s ease-out)
+  - Dashboard counters: count-up from 0 (1.2s)
+  - Confetti: 120 particles, canvas animation, gravity
+  - Toasts: slide-in from right, auto-dismiss
+  - Buttons: ripple effect, hover lift
+  - Cards: hover translateY + shadow intensify
+
+
+================================================================================
+15. HOW TO RUN
+================================================================================
+
+PREREQUISITES:
+  - Python 3.10+ installed
+  - (Optional) Ganache for blockchain features
+
+STEPS:
+  1. Open terminal in D:\MINIPROJECT\
+
+  2. Install dependencies:
+     pip install -r requirements.txt
+
+  3. Run the application:
+     python app.py
+
+  4. Open browser:
+     http://127.0.0.1:5000
+
+  5. Register a new account and start using the app.
+
+FOR BLOCKCHAIN FEATURES:
+  1. Install & run Ganache (https://trufflesuite.com/ganache/)
+  2. Deploy CertificateVerify.sol to Ganache
+  3. Copy the deployed contract address
+  4. Update CONTRACT_ADDRESS in blockchain/web3_connect.py
+  5. Restart the Flask server
+
+
+================================================================================
+  End of Documentation
+================================================================================
