@@ -5,3 +5,10 @@ nltk
 web3
 python-dotenv
 bcrypt
+twilio
+pytesseract
+Pillow
+requests
+beautifulsoup4
+fuzzywuzzy
+python-Levenshtein

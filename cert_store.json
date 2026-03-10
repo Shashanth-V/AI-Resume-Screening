@@ -1,0 +1,24 @@
+{
+  "+917619299066": [
+    {
+      "file_hash": "bc9198dcd65123e14aa8852b77855aa198726cedf7446c3c01738bd4a79c13ca",
+      "cert_title": "",
+      "issuer": "",
+      "candidate_name": "Chaitra_CV_modified_with_sis_number.pdf",
+      "is_authentic": false,
+      "confidence_score": 0,
+      "stored_at": "2026-03-09T17:15:56.802480",
+      "local_only": true
+    },
+    {
+      "file_hash": "bc9198dcd65123e14aa8852b77855aa198726cedf7446c3c01738bd4a79c13ca",
+      "cert_title": "",
+      "issuer": "",
+      "candidate_name": "Chaitra_CV_modified_with_sis_number.pdf",
+      "is_authentic": false,
+      "confidence_score": 0,
+      "stored_at": "2026-03-09T17:21:52.788500",
+      "local_only": true
+    }
+  ]
+}

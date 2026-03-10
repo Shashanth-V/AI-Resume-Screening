@@ -11,6 +11,9 @@ let allResults    = [];      // Cumulative results across all analyses
 let totalResumes  = 0;
 let totalCerts    = 0;
 
+let pipelinePollers = {};    // phone -> intervalId for pipeline polling
+let shortlistedCandidates = []; // Shortlisted candidate names
+
 /* ═══════════════════════════════════════════
    TOAST SYSTEM
    ═══════════════════════════════════════════ */
@@ -38,8 +41,8 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     document.getElementById('pane-' + tab.dataset.tab).classList.add('active');
     // Load dashboard data when switching to dash tab
     if (tab.dataset.tab === 'dash') loadDashboard();
-    // Check blockchain when switching to cert tab
-    if (tab.dataset.tab === 'cert') { checkBlockchain(); populateCandidateDropdown(); }
+    // Load shortlist when switching to shortlist tab
+    if (tab.dataset.tab === 'shortlist') renderShortlist();
   });
 });
 
@@ -194,8 +197,12 @@ async function analyzeResumes() {
     allResults = data.all_results || allResults.concat(data.results);
     totalResumes = allResults.length;
     renderResultCards(lastResults);
-    populateCandidateDropdown();
     document.getElementById('resultsArea').style.display = 'block';
+    document.getElementById('waRequestCard').style.display = 'block';
+
+    // Show automated WhatsApp pipeline status
+    renderAutoWaStatus(data.results, data.auto_whatsapp || []);
+
     showToast(`Ranked ${lastResults.length} resume(s) successfully! (${allResults.length} total)`);
 
     // Confetti for top result
@@ -260,188 +267,14 @@ function renderResultCards(results) {
 }
 
 /* ═══════════════════════════════════════════
-   CERTIFICATE UPLOAD / REMOVE
-   ═══════════════════════════════════════════ */
-function handleCertFile(type) {
-  const input   = document.getElementById(type + 'FileInput');
-  const zone    = document.getElementById(type + 'UploadZone');
-  const preview = document.getElementById(type + 'FilePreview');
-  const nameEl  = document.getElementById(type + 'FileName');
-  if (input.files.length) {
-    zone.style.display    = 'none';
-    preview.style.display = 'flex';
-    nameEl.textContent    = truncate(input.files[0].name, 32);
-  }
-}
-
-function removeCertFile(type) {
-  const input   = document.getElementById(type + 'FileInput');
-  const zone    = document.getElementById(type + 'UploadZone');
-  const preview = document.getElementById(type + 'FilePreview');
-  input.value = '';
-  zone.style.display    = 'block';
-  preview.style.display = 'none';
-  document.getElementById(type + 'Result').innerHTML = '';
-  showToast('File removed', 'info');
-}
-
-/* ═══════════════════════════════════════════
-   STORE CERTIFICATE
-   ═══════════════════════════════════════════ */
-function getCandidateDropdown() {
-  return document.getElementById('certCandidate');
-}
-
-function populateCandidateDropdown() {
-  const sel = getCandidateDropdown();
-  if (!sel) return;
-  const current = sel.value;
-  sel.innerHTML = '<option value="">— Select a candidate —</option>';
-  allResults.forEach(r => {
-    const opt = document.createElement('option');
-    opt.value = r.filename;
-    opt.textContent = `#${r.rank} ${r.filename} (${r.score}%)`;
-    if (r.cert_status === 'verified') opt.textContent += ' ✅';
-    sel.appendChild(opt);
-  });
-  if (current) sel.value = current;
-}
-
-async function storeCert() {
-  const input = document.getElementById('storeFileInput');
-  if (!input.files.length) { showToast('Select a certificate file first', 'error'); return; }
-  const candidate = getCandidateDropdown()?.value || '';
-  if (!candidate) { showToast('Select a candidate first', 'error'); return; }
-  const fd = new FormData();
-  fd.append('certificate', input.files[0]);
-  fd.append('candidate', candidate);
-  try {
-    const res  = await fetch('/store-certificate', { method: 'POST', body: fd });
-    const data = await res.json();
-    const div  = document.getElementById('storeResult');
-    if (data.error) { div.innerHTML = errBadge(data.error); showToast(data.error, 'error'); return; }
-    div.innerHTML = `
-      <div class="cert-ok"><i class="fas fa-check-circle"></i> ${data.status}</div>
-      <div class="hash-box">
-        <label>SHA-256 Hash</label>
-        <div class="hash-copy"><code>${data.hash}</code><button onclick="copyHash(this,'${data.hash}')"><i class="fas fa-copy"></i></button></div>
-      </div>
-      <div class="hash-box">
-        <label>Transaction Hash</label>
-        <div class="hash-copy"><code>${data.tx_hash}</code><button onclick="copyHash(this,'${data.tx_hash}')"><i class="fas fa-copy"></i></button></div>
-      </div>`;
-    showToast('Certificate stored on blockchain!');
-  } catch (err) { showToast('Error: ' + err.message, 'error'); }
-}
-
-/* ═══════════════════════════════════════════
-   VERIFY CERTIFICATE
-   ═══════════════════════════════════════════ */
-async function verifyCert() {
-  const input = document.getElementById('verifyFileInput');
-  if (!input.files.length) { showToast('Select a certificate file first', 'error'); return; }
-  const candidate = getCandidateDropdown()?.value || '';
-  if (!candidate) { showToast('Select a candidate first', 'error'); return; }
-  const fd = new FormData();
-  fd.append('certificate', input.files[0]);
-  fd.append('candidate', candidate);
-  try {
-    const res  = await fetch('/verify-certificate', { method: 'POST', body: fd });
-    const data = await res.json();
-    const div  = document.getElementById('verifyResult');
-    if (data.error) { div.innerHTML = errBadge(data.error); showToast(data.error, 'error'); return; }
-
-    const ok       = data.status === 'Verified';
-    const mismatch = data.status === 'Mismatch';
-    const notFound = !ok && !mismatch;
-
-    if (ok) {
-      totalCerts++;
-      // Update local allResults with verified status
-      const cand = data.candidate || '';
-      if (cand) {
-        allResults.forEach(r => {
-          if (r.filename === cand) { r.cert_status = 'verified'; r.cert_hash = data.hash; }
-        });
-      }
-      populateCandidateDropdown();
-    }
-
-    // Show overlay modal
-    const overlay = document.getElementById('verifyOverlay');
-    const modal   = document.getElementById('verifyModal');
-
-    let iconClass, icon, heading, headClass, subText;
-    if (ok) {
-      iconClass = 'vm-ok';    icon = 'check';            headClass = 'text-green';
-      heading = 'VERIFIED';    subText = 'This certificate is authentic and matches this candidate.';
-    } else if (mismatch) {
-      iconClass = 'vm-warn';   icon = 'exclamation-triangle'; headClass = 'text-amber';
-      heading = 'MISMATCH';    subText = data.message || 'This certificate does not belong to this candidate.';
-    } else {
-      iconClass = 'vm-fail';   icon = 'times';            headClass = 'text-red';
-      heading = 'NOT VERIFIED'; subText = 'This certificate hash was not found on the blockchain.';
-    }
-
-    modal.innerHTML = `
-      <div class="vm-icon ${iconClass}">
-        <i class="fas fa-${icon}"></i>
-      </div>
-      <h2 class="${headClass}">${heading}</h2>
-      <p class="vm-sub">${subText}</p>
-      <div class="hash-box">
-        <label>SHA-256 Hash</label>
-        <div class="hash-copy"><code>${data.hash}</code><button onclick="copyHash(this,'${data.hash}')"><i class="fas fa-copy"></i></button></div>
-      </div>
-      <button class="btn-primary mt-1" onclick="closeVerifyOverlay()">Close</button>`;
-    overlay.classList.add('open');
-    showToast(ok ? 'Certificate verified!' : mismatch ? 'Certificate mismatch!' : 'Certificate NOT found', ok ? 'success' : 'error');
-  } catch (err) { showToast('Error: ' + err.message, 'error'); }
-}
-
-function closeVerifyOverlay(e) {
-  if (e && e.target !== e.currentTarget) return;
-  document.getElementById('verifyOverlay').classList.remove('open');
-}
-
-function errBadge(msg) {
-  // Truncate extremely long error messages to prevent UI crash
-  const clean = msg.length > 150 ? msg.slice(0, 150) + '…' : msg;
-  return `<div class="cert-fail"><i class="fas fa-exclamation-circle"></i> ${clean}</div>`;
-}
-
-/* ═══════════════════════════════════════════
-   COPY HASH
-   ═══════════════════════════════════════════ */
-function copyHash(btn, text) {
-  navigator.clipboard.writeText(text).then(() => {
-    const icon = btn.querySelector('i');
-    icon.className = 'fas fa-check';
-    setTimeout(() => icon.className = 'fas fa-copy', 1500);
-    showToast('Copied to clipboard', 'info');
-  }).catch(() => showToast('Copy failed', 'error'));
-}
-
-/* ═══════════════════════════════════════════
-   BLOCKCHAIN STATUS
+   BLOCKCHAIN STATUS (checked on load)
    ═══════════════════════════════════════════ */
 async function checkBlockchain() {
   try {
     const res  = await fetch('/blockchain-status');
     const data = await res.json();
-    const dot  = document.getElementById('bcDot');
-    const lbl  = document.getElementById('bcLabel');
-    if (data.connected) {
-      dot.className = 'bc-dot connected';
-      lbl.textContent = 'Ganache Connected';
-    } else {
-      dot.className = 'bc-dot disconnected';
-      lbl.textContent = 'Offline Mode — AI features still work';
-    }
-  } catch {
-    document.getElementById('bcDot').className = 'bc-dot disconnected';
-    document.getElementById('bcLabel').textContent = 'Offline Mode — AI features still work';
-  }
+    return data.connected;
+  } catch { return false; }
 }
 checkBlockchain();
 
@@ -528,13 +361,20 @@ function applyFilters() {
   if (certFilter === 'verified') filtered = filtered.filter(r => r.cert_status === 'verified');
   if (certFilter === 'pending') filtered = filtered.filter(r => r.cert_status !== 'verified');
 
-  // Always sort descending by score and re-rank
-  filtered.sort((a, b) => b.score - a.score);
+  // Sort: verified first, then descending by score, and re-rank
+  filtered.sort((a, b) => {
+    const aV = a.cert_status === 'verified' ? 0 : 1;
+    const bV = b.cert_status === 'verified' ? 0 : 1;
+    if (aV !== bV) return aV - bV;
+    return b.score - a.score;
+  });
   filtered.forEach((r, i) => r.rank = i + 1);
 
   const tbody = document.getElementById('dashBody');
   if (!filtered.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="6"><div class="empty-state"><i class="fas fa-inbox"></i><p>No matching results</p><span>Adjust your filters or analyze more resumes.</span></div></td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7"><div class="empty-state"><i class="fas fa-inbox"></i><p>No matching results</p><span>Adjust your filters or analyze more resumes.</span></div></td></tr>';
+    document.getElementById('selectAllCandidates').checked = false;
+    updateShortlistBar();
     return;
   }
   let html = '';
@@ -542,29 +382,32 @@ function applyFilters() {
     const pct = r.score;
     const color = pct >= 70 ? '#00d4aa' : pct >= 40 ? '#f5a623' : '#ff4d4d';
     const barW = Math.max(pct, 4);
+    const trust = r.trust_score;
+    let trustHtml;
+    if (trust != null) {
+      const tc = trust >= 70 ? 'trust-high' : trust >= 40 ? 'trust-med' : 'trust-low';
+      trustHtml = `<span class="trust-badge ${tc}">${trust}%</span>`;
+    } else {
+      trustHtml = '<span class="trust-badge trust-na">N/A</span>';
+    }
+    const isShortlisted = shortlistedCandidates.includes(r.filename);
+    const realName = r.candidate_name || r.filename;
     html += `<tr style="animation-delay:${i * 0.04}s">
+      <td style="text-align:center"><input type="checkbox" class="candidate-cb" data-name="${r.filename}" data-realname="${realName}" data-phone="${r.phone || ''}" data-score="${pct}" onchange="updateShortlistBar()"${isShortlisted ? ' checked disabled title="Already shortlisted"' : ''}/></td>
       <td><span class="rank-num">#${r.rank}</span></td>
-      <td class="td-name">${r.filename}</td>
+      <td class="td-name">${r.filename}${isShortlisted ? ' <i class="fas fa-star" style="color:var(--amber);font-size:.7rem" title="Shortlisted"></i>' : ''}</td>
       <td>${pct}%</td>
       <td><div class="score-bar-bg"><div class="score-bar-fill" style="width:${barW}%;background:${color}"></div></div></td>
       <td>${r.cert_status === 'verified'
         ? '<span class="pill-badge pill-verified"><i class="fas fa-check-circle"></i> Verified</span>'
         : '<span class="pill-badge pill-pending"><i class="fas fa-hourglass-half"></i> Pending</span>'
       }</td>
-      <td class="td-actions">
-        <button class="act-btn" title="${r.cert_status === 'verified' ? 'Already Verified' : 'Verify Certificate'}" onclick="switchToCert('${r.filename}')"><i class="fas fa-shield-alt"></i></button>
-      </td>
+      <td>${trustHtml}</td>
     </tr>`;
   });
   tbody.innerHTML = html;
-}
-
-function switchToCert(candidateName) {
-  document.querySelector('.nav-tab[data-tab="cert"]').click();
-  if (candidateName) {
-    const sel = getCandidateDropdown();
-    if (sel) sel.value = candidateName;
-  }
+  document.getElementById('selectAllCandidates').checked = false;
+  updateShortlistBar();
 }
 
 /* ═══════════════════════════════════════════
@@ -573,14 +416,263 @@ function switchToCert(candidateName) {
 function exportCSV() {
   const data = allResults.length ? allResults : lastResults;
   if (!data.length) { showToast('No data to export', 'info'); return; }
-  let csv = 'Rank,Candidate,Match Score (%)\n';
-  data.forEach(r => csv += `${r.rank},"${r.filename}",${r.score}\n`);
+  let csv = 'Rank,Candidate,Match Score (%),Certificate Status,Trust Score\n';
+  data.forEach(r => csv += `${r.rank},"${r.filename}",${r.score},${r.cert_status || 'pending'},${r.trust_score != null ? r.trust_score : 'N/A'}\n`);
   const blob = new Blob([csv], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url; a.download = 'recruitai_results.csv'; a.click();
   URL.revokeObjectURL(url);
   showToast('CSV downloaded!');
+}
+
+/* ═══════════════════════════════════════════
+   WHATSAPP — AUTOMATED PIPELINE
+   ═══════════════════════════════════════════ */
+
+/**
+ * After analysis, show which candidates were auto-contacted
+ * and which need manual phone entry.
+ */
+function renderAutoWaStatus(results, autoWa) {
+  const autoList    = document.getElementById('waAutoList');
+  const manualSec   = document.getElementById('waManualSection');
+  const manualList  = document.getElementById('waManualList');
+  const summaryEl   = document.getElementById('waPipelineSummary');
+
+  const contacted = results.filter(r => r.wa_status === 'sent');
+  const noPhone   = results.filter(r => r.wa_status === 'no_phone');
+  const failed    = results.filter(r => r.wa_status === 'failed');
+
+  // Render auto-contacted candidates
+  if (contacted.length) {
+    autoList.innerHTML = contacted.map(r =>
+      `<div class="file-chip" style="border-color:var(--accent)">
+        <i class="fab fa-whatsapp" style="color:#25d366"></i>
+        <span class="fc-name">${r.filename}</span>
+        <span class="fc-size">${r.phone}</span>
+      </div>`
+    ).join('');
+    // Start polling for all contacted candidates
+    contacted.forEach(r => startPipelinePolling(r.phone, r.filename));
+  } else {
+    autoList.innerHTML = '<span style="color:var(--text2)">No candidates had phone numbers in their resume</span>';
+  }
+
+  // Show manual section for candidates without phone
+  if (noPhone.length || failed.length) {
+    manualSec.style.display = 'block';
+    const all = [...noPhone, ...failed];
+    manualList.innerHTML = all.map(r =>
+      `<div class="file-chip" style="border-color:var(--amber)">
+        <i class="fas fa-phone-slash" style="color:var(--amber)"></i>
+        <span class="fc-name">${r.filename}</span>
+        <span class="fc-size">${r.wa_status === 'failed' ? 'Send failed' : 'No phone found'}</span>
+      </div>`
+    ).join('');
+    // Populate manual dropdown with only no-phone candidates
+    const sel = document.getElementById('waCandidateSelect');
+    if (sel) {
+      sel.innerHTML = '<option value="">— Select —</option>';
+      all.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r.filename;
+        opt.textContent = `${r.filename} (${r.score}%)`;
+        sel.appendChild(opt);
+      });
+    }
+  }
+
+  // Summary
+  summaryEl.innerHTML = `<i class="fas fa-paper-plane" style="color:var(--accent)"></i> ${contacted.length} contacted automatically` +
+    (noPhone.length ? ` &middot; <span style="color:var(--amber)">${noPhone.length} need manual phone entry</span>` : '') +
+    (failed.length ? ` &middot; <span style="color:var(--danger)">${failed.length} failed to send</span>` : '');
+}
+
+/**
+ * Manual WhatsApp send for candidates without phone
+ */
+async function sendManualWhatsApp() {
+  const candidate = document.getElementById('waCandidateSelect')?.value;
+  const countryCode = document.getElementById('waCountryCode')?.value || '+91';
+  const phone = document.getElementById('waPhoneInput')?.value?.trim();
+  if (!candidate) { showToast('Select a candidate first', 'error'); return; }
+  if (!phone || phone.length < 7) { showToast('Enter a valid phone number', 'error'); return; }
+  const fullPhone = countryCode + phone;
+  const btn = document.getElementById('btnSendWA');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+  try {
+    const res = await fetch('/send-whatsapp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ candidate_name: candidate, phone: fullPhone })
+    });
+    const data = await res.json();
+    if (data.error) { showToast(data.error, 'error'); return; }
+    showToast('WhatsApp message sent to ' + fullPhone);
+    startPipelinePolling(fullPhone, candidate);
+    // Update the manual chip to show "sent"
+    const chips = document.querySelectorAll('#waManualList .file-chip');
+    chips.forEach(c => {
+      if (c.querySelector('.fc-name')?.textContent === candidate) {
+        c.style.borderColor = 'var(--accent)';
+        c.querySelector('i').className = 'fab fa-whatsapp';
+        c.querySelector('i').style.color = '#25d366';
+        c.querySelector('.fc-size').textContent = fullPhone;
+      }
+    });
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fab fa-whatsapp"></i> Send WhatsApp Request';
+  }
+}
+
+/* ═══════════════════════════════════════════
+   PIPELINE STATUS POLLING
+   ═══════════════════════════════════════════ */
+function startPipelinePolling(phone, candidateName) {
+  if (pipelinePollers[phone]) clearInterval(pipelinePollers[phone]);
+  pipelinePollers[phone] = setInterval(async () => {
+    try {
+      const res  = await fetch('/check-cert-status?phone=' + encodeURIComponent(phone));
+      const data = await res.json();
+      if (data.stage === 'complete' || data.stage === 'error') {
+        clearInterval(pipelinePollers[phone]);
+        delete pipelinePollers[phone];
+        if (data.stage === 'complete') {
+          showToast(`Certificate verified for ${candidateName || phone}!`);
+          // Auto-refresh dashboard to reflect new ranking
+          loadDashboard();
+          updatePipelineSummary();
+        } else {
+          showToast('Pipeline issue for ' + (candidateName || phone) + ': ' + (data.message || ''), 'error');
+        }
+      }
+    } catch { /* retry on next interval */ }
+  }, 8000);
+}
+
+function updatePipelineSummary() {
+  const summaryEl = document.getElementById('waPipelineSummary');
+  if (!summaryEl) return;
+  const activeCount = Object.keys(pipelinePollers).length;
+  if (activeCount > 0) {
+    summaryEl.innerHTML = `<i class="fas fa-spinner fa-spin" style="color:var(--accent)"></i> ${activeCount} candidate(s) still being processed...`;
+  } else {
+    summaryEl.innerHTML = `<i class="fas fa-check-circle" style="color:var(--accent)"></i> All pipelines complete! Check the Dashboard for updated rankings.`;
+  }
+}
+
+/* ═══════════════════════════════════════════
+   SHORTLIST FUNCTIONS
+   ═══════════════════════════════════════════ */
+function toggleSelectAll(masterCb) {
+  const checkboxes = document.querySelectorAll('.candidate-cb:not(:disabled)');
+  checkboxes.forEach(cb => cb.checked = masterCb.checked);
+  updateShortlistBar();
+}
+
+function updateShortlistBar() {
+  const checked = document.querySelectorAll('.candidate-cb:checked:not(:disabled)');
+  const bar = document.getElementById('shortlistBar');
+  const countEl = document.getElementById('shortlistCount');
+  if (checked.length > 0) {
+    bar.style.display = 'flex';
+    countEl.textContent = checked.length + ' selected';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+async function shortlistSelected() {
+  const checked = document.querySelectorAll('.candidate-cb:checked:not(:disabled)');
+  if (!checked.length) { showToast('No candidates selected', 'info'); return; }
+  const candidates = Array.from(checked).map(cb => ({
+    filename: cb.dataset.name,
+    realname: cb.dataset.realname || cb.dataset.name,
+    phone: cb.dataset.phone || '',
+    score: cb.dataset.score || ''
+  }));
+  const btn = document.querySelector('#shortlistBar .btn-primary');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Notifying...';
+  try {
+    const res = await fetch('/shortlist-notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ candidates })
+    });
+    const data = await res.json();
+    if (data.error) { showToast(data.error, 'error'); return; }
+    // Add to shortlisted list
+    candidates.forEach(c => {
+      if (!shortlistedCandidates.includes(c.filename)) {
+        shortlistedCandidates.push(c.filename);
+      }
+    });
+    showToast(`${data.notified} candidate(s) shortlisted & notified!`);
+    applyFilters(); // Re-render to show shortlisted state
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-paper-plane"></i> Shortlist & Notify via WhatsApp';
+  }
+}
+
+function renderShortlist() {
+  const listEl = document.getElementById('shortlistedList');
+  const emptyEl = document.getElementById('shortlistEmpty');
+  if (!shortlistedCandidates.length) {
+    listEl.innerHTML = '';
+    listEl.appendChild(emptyEl);
+    emptyEl.style.display = '';
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+  let html = '<div class="shortlist-grid">';
+  shortlistedCandidates.forEach((name, i) => {
+    const match = allResults.find(r => r.filename === name);
+    const score = match ? match.score + '%' : '—';
+    const cert = match && match.cert_status === 'verified'
+      ? '<span class="pill-badge pill-verified" style="font-size:.7rem"><i class="fas fa-check-circle"></i> Verified</span>'
+      : '<span class="pill-badge pill-pending" style="font-size:.7rem"><i class="fas fa-hourglass-half"></i> Pending</span>';
+    const phone = match && match.phone ? match.phone : 'No phone';
+    html += `<div class="shortlist-card anim-fade" style="--d:${i}">
+      <div class="sl-card-top">
+        <div class="sl-avatar">${name.charAt(0).toUpperCase()}</div>
+        <div class="sl-info">
+          <div class="sl-name">${name}</div>
+          <div class="sl-meta"><i class="fas fa-phone-alt"></i> ${phone}</div>
+        </div>
+      </div>
+      <div class="sl-card-bottom">
+        <span class="sl-score"><i class="fas fa-chart-bar"></i> ${score}</span>
+        ${cert}
+        <span class="sl-notified"><i class="fab fa-whatsapp" style="color:#25d366"></i> Notified</span>
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+  listEl.innerHTML = html;
+}
+
+function exportShortlistCSV() {
+  if (!shortlistedCandidates.length) { showToast('No shortlisted candidates to export', 'info'); return; }
+  let csv = 'Candidate,Match Score (%),Certificate Status,Phone\n';
+  shortlistedCandidates.forEach(name => {
+    const match = allResults.find(r => r.filename === name);
+    csv += `"${name}",${match ? match.score : ''},${match ? (match.cert_status || 'pending') : ''},${match && match.phone ? match.phone : ''}\n`;
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = 'shortlisted_candidates.csv'; a.click();
+  URL.revokeObjectURL(url);
+  showToast('Shortlist CSV downloaded!');
 }
 
 /* ═══════════════════════════════════════════

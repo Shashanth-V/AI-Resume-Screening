@@ -1,8 +1,9 @@
 """
 app.py — Flask backend for AI Resume Screening with Blockchain Certificate Verification.
 Provides authentication (register / login / logout), resume analysis
-(TF-IDF + cosine similarity), and certificate storage & verification
-via a blockchain smart contract (Web3 / Ganache).
+(TF-IDF + cosine similarity), certificate storage & verification
+via a blockchain smart contract (Web3 / Ganache), WhatsApp-based
+certificate request pipeline, OCR verification, and resume-vs-cert cross-check.
 """
 
 import os
@@ -21,6 +22,9 @@ from werkzeug.utils import secure_filename
 from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from dotenv import load_dotenv
+
+load_dotenv()
 
 import nltk
 # Auto-download NLTK stopwords if not present
@@ -31,8 +35,13 @@ except LookupError:
 
 from nltk.corpus import stopwords
 
-# Blockchain helper
+# Project modules
 from blockchain import web3_connect
+import whatsapp_handler
+import cert_verifier
+import resume_matcher
+import worker
+import json as json_mod
 
 # ──────────────────────────────────────────────
 # App setup
@@ -48,6 +57,35 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 STOP_WORDS = set(stopwords.words("english"))
 ALLOWED_EXTENSIONS = {"pdf"}
+
+# Shared candidate registry (phone → candidate mapping for webhook)
+CANDIDATE_REGISTRY = os.path.join(BASE_DIR, "candidate_registry.json")
+_reg_lock = __import__('threading').Lock()
+
+def _read_registry() -> dict:
+    if not os.path.exists(CANDIDATE_REGISTRY):
+        return {}
+    try:
+        with open(CANDIDATE_REGISTRY, "r") as f:
+            return json_mod.load(f)
+    except Exception:
+        return {}
+
+def _write_registry(data: dict):
+    with _reg_lock:
+        with open(CANDIDATE_REGISTRY, "w") as f:
+            json_mod.dump(data, f, indent=2, default=str)
+
+def _register_candidate(phone: str, candidate_name: str, cert_claims: list):
+    reg = _read_registry()
+    reg[phone] = {
+        "candidate_name": candidate_name,
+        "cert_claims": cert_claims,
+    }
+    _write_registry(reg)
+
+def _lookup_candidate(phone: str) -> dict:
+    return _read_registry().get(phone, {})
 
 
 # ──────────────────────────────────────────────
@@ -294,17 +332,62 @@ def upload_resume():
         for rank, item in enumerate(results, start=1):
             item["rank"] = rank
 
+        # ── Auto-extract phone + cert claims from each resume ──
+        auto_wa_results = []   # candidates contacted via WhatsApp
+        for r in results:
+            safe = secure_filename(r["filename"])
+            path = os.path.join(app.config["UPLOAD_FOLDER"], safe)
+            if not os.path.exists(path):
+                continue
+            with open(path, "rb") as pf:
+                raw = extract_text_from_pdf(pf)
+            # Extract candidate name
+            r["candidate_name"] = resume_matcher.extract_candidate_name(raw) or r["filename"].rsplit(".", 1)[0]
+            # Extract phone
+            phones = resume_matcher.extract_phone_numbers(raw)
+            r["phone"] = phones[0] if phones else ""
+            # Extract cert claims
+            claims = resume_matcher.extract_cert_claims(raw)
+            r["cert_claims"] = claims
+            # Auto-send WhatsApp if phone found
+            if r["phone"]:
+                phone_clean = whatsapp_handler.normalize_phone(r["phone"])
+                r["phone"] = phone_clean
+                _register_candidate(phone_clean, r["filename"], claims)
+                try:
+                    wa_result = whatsapp_handler.send_certificate_request(
+                        phone_clean, r["filename"], claims
+                    )
+                    if wa_result.get("success"):
+                        r["wa_status"] = "sent"
+                        worker.update_stage(phone_clean, "whatsapp_sent",
+                                            f"WhatsApp sent to {r['filename']}. Waiting for reply...")
+                        auto_wa_results.append({"candidate": r["filename"], "phone": phone_clean})
+                    else:
+                        r["wa_status"] = "failed"
+                except Exception:
+                    r["wa_status"] = "failed"
+            else:
+                r["wa_status"] = "no_phone"
+
         # Accumulate results across analyses (don't overwrite)
         all_results = session.get("results", [])
         all_results.extend(results)
-        # Re-rank the entire cumulative list by score
-        all_results.sort(key=lambda x: x["score"], reverse=True)
+        # Re-rank: verified first, then by score
+        all_results.sort(key=lambda x: (
+            0 if x.get("cert_status") == "verified" else 1,
+            -x["score"]
+        ))
         for rank, item in enumerate(all_results, start=1):
             item["rank"] = rank
         session["results"] = all_results
         session["total_resumes"] = session.get("total_resumes", 0) + len(results)
 
-        return jsonify({"results": results, "all_results": all_results})
+        return jsonify({
+            "results": results,
+            "all_results": all_results,
+            "auto_whatsapp": auto_wa_results,
+        })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -424,12 +507,314 @@ def blockchain_status():
 @app.route("/dashboard-data")
 @login_required
 def dashboard_data():
-    """Return persisted session data for the recruiter dashboard."""
+    """Return persisted session data for the recruiter dashboard.
+    Re-ranks with verified candidates first, then by score."""
+    results = session.get("results", [])
+
+    # Check pipeline status for each candidate and auto-update verification
+    for r in results:
+        phone = r.get("phone", "")
+        if phone and r.get("cert_status") != "verified":
+            status = worker.get_status(phone)
+            if status.get("stage") == "complete":
+                certs = status.get("certs", [])
+                authentic = [c for c in certs if c.get("is_authentic")]
+                if authentic:
+                    r["cert_status"] = "verified"
+                    r["trust_score"] = max(c.get("confidence_score", 0) for c in authentic)
+                    session["total_certs"] = session.get("total_certs", 0) + 1
+
+    # Re-rank: verified first, then by score
+    results.sort(key=lambda x: (
+        0 if x.get("cert_status") == "verified" else 1,
+        -x.get("score", 0)
+    ))
+    for rank, item in enumerate(results, start=1):
+        item["rank"] = rank
+    session["results"] = results
+
     return jsonify({
-        "results": session.get("results", []),
+        "results": results,
         "total_resumes": session.get("total_resumes", 0),
         "total_certs": session.get("total_certs", 0)
     })
+
+
+# ──────────────────────────────────────────────
+# WhatsApp routes
+# ──────────────────────────────────────────────
+
+@app.route("/send-whatsapp", methods=["POST"])
+@login_required
+def send_whatsapp():
+    """Send a WhatsApp certificate-request message to a candidate."""
+    try:
+        data = request.get_json()
+        phone = data.get("phone", "").strip()
+        candidate_name = data.get("candidate_name", "").strip()
+        cert_list = data.get("cert_list", [])
+
+        if not phone:
+            return jsonify({"error": "Phone number is required."}), 400
+
+        phone_clean = whatsapp_handler.normalize_phone(phone)
+        result = whatsapp_handler.send_certificate_request(phone_clean, candidate_name, cert_list)
+
+        if result.get("success"):
+            # Track WhatsApp requests in session
+            wa_requests = session.get("whatsapp_requests", {})
+            wa_requests[phone_clean] = {
+                "candidate_name": candidate_name,
+                "cert_list": cert_list,
+                "sent": True,
+            }
+            session["whatsapp_requests"] = wa_requests
+
+            # Initialize status
+            worker.update_stage(phone_clean, "whatsapp_sent",
+                                f"WhatsApp sent to {candidate_name}. Waiting for reply...")
+
+            return jsonify({
+                "message": f"WhatsApp sent to {phone_clean}!",
+                "phone": phone_clean,
+                "message_sid": result.get("message_sid", ""),
+            })
+        else:
+            return jsonify({"error": result.get("error", "Failed to send.")}), 500
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/shortlist-notify", methods=["POST"])
+@login_required
+def shortlist_notify():
+    """Notify shortlisted candidates via WhatsApp."""
+    try:
+        data = request.get_json()
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return jsonify({"error": "No candidates provided."}), 400
+
+        notified = 0
+        errors = []
+        for c in candidates:
+            phone = c.get("phone", "").strip()
+            name = c.get("realname", "").strip() or c.get("filename", "").strip()
+            if phone:
+                result = whatsapp_handler.send_shortlist_notification(phone, name)
+                if result.get("success"):
+                    notified += 1
+                else:
+                    errors.append(f"{name}: {result.get('error', 'Unknown error')}")
+            else:
+                errors.append(f"{name}: No phone number")
+
+        return jsonify({
+            "notified": notified,
+            "total": len(candidates),
+            "errors": errors
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/whatsapp-webhook", methods=["POST"])
+def whatsapp_webhook():
+    """
+    Twilio WhatsApp webhook — called when a candidate replies.
+    Must respond within 5 seconds → processing runs in background thread.
+    """
+    try:
+        parsed = whatsapp_handler.parse_webhook(request.form.to_dict())
+        phone = parsed["phone"]
+
+        # Look up candidate name from shared registry (file-based, not session)
+        candidate_info = _lookup_candidate(phone)
+        candidate_name = candidate_info.get("candidate_name", "")
+
+        if parsed["num_media"] > 0 and parsed["media"]:
+            # Launch background pipeline
+            worker.start_pipeline_thread(
+                phone=phone,
+                media_list=parsed["media"],
+                candidate_name=candidate_name,
+            )
+
+        # Twilio requires a TwiML response
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Response><Message>Got it! Processing your certificates now...</Message></Response>',
+            200,
+            {"Content-Type": "text/xml"},
+        )
+
+    except Exception:
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Response></Response>',
+            200,
+            {"Content-Type": "text/xml"},
+        )
+
+
+@app.route("/check-cert-status")
+@login_required
+def check_cert_status():
+    """Poll endpoint — returns current pipeline status for a phone number."""
+    phone = request.args.get("phone", "").strip()
+    if not phone:
+        return jsonify({"stage": "idle", "message": "No phone provided.", "certs": []})
+
+    phone_clean = whatsapp_handler.normalize_phone(phone)
+    status = worker.get_status(phone_clean)
+    return jsonify(status)
+
+
+# ──────────────────────────────────────────────
+# Certificate verification pipeline routes
+# ──────────────────────────────────────────────
+
+@app.route("/extract-certs-from-resume", methods=["POST"])
+@login_required
+def extract_certs_from_resume():
+    """Extract certification claims from a previously uploaded resume (file upload or filename)."""
+    try:
+        # Support both file upload and JSON filename reference
+        file = request.files.get("resume")
+        if file:
+            text = extract_text_from_pdf(file)
+        else:
+            data = request.get_json() or {}
+            filename = data.get("filename", "").strip()
+            if not filename:
+                return jsonify({"error": "Filename or file is required."}), 400
+            file_path = os.path.join(app.config["UPLOAD_FOLDER"], secure_filename(filename))
+            if not os.path.exists(file_path):
+                return jsonify({"error": "Resume file not found."}), 404
+            with open(file_path, "rb") as f:
+                text = extract_text_from_pdf(f)
+
+        claims = resume_matcher.extract_cert_claims(text)
+        phones = resume_matcher.extract_phone_numbers(text)
+
+        return jsonify({"claims": claims, "phones": phones})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/cross-check", methods=["POST"])
+@login_required
+def cross_check():
+    """Cross-check resume claims against blockchain-verified certificates."""
+    try:
+        data = request.get_json()
+        phone = data.get("phone", "").strip()
+        filename = data.get("filename", "").strip()
+
+        if not phone or not filename:
+            return jsonify({"error": "Phone and filename are required."}), 400
+
+        phone_clean = whatsapp_handler.normalize_phone(phone)
+
+        # Read resume text
+        file_path = os.path.join(app.config["UPLOAD_FOLDER"], secure_filename(filename))
+        resume_text = ""
+        if os.path.exists(file_path):
+            with open(file_path, "rb") as f:
+                reader = PdfReader(f)
+                for page in reader.pages:
+                    pt = page.extract_text()
+                    if pt:
+                        resume_text += pt + " "
+
+        # Get blockchain certs
+        blockchain_certs = web3_connect.get_candidate_certificates(phone_clean)
+
+        # Also check local cert_store.json fallback
+        local_certs = _get_local_certs(phone_clean)
+        all_certs = blockchain_certs + local_certs
+
+        # Cross-check
+        result = resume_matcher.cross_check_resume_vs_blockchain(resume_text, all_certs)
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _get_local_certs(phone: str) -> list:
+    """Read certs from local cert_store.json fallback."""
+    import json
+    store_file = os.path.join(BASE_DIR, "cert_store.json")
+    if not os.path.exists(store_file):
+        return []
+    try:
+        with open(store_file, "r") as f:
+            store = json.load(f)
+        return store.get(phone, [])
+    except Exception:
+        return []
+
+
+# ──────────────────────────────────────────────
+# Certificate Ledger routes
+# ──────────────────────────────────────────────
+
+@app.route("/ledger-data")
+@login_required
+def ledger_data():
+    """Return all certificate records for the ledger tab."""
+    try:
+        import json as json_mod
+        records = []
+
+        # From status.json (pipeline-processed certs)
+        status_file = os.path.join(BASE_DIR, "status.json")
+        if os.path.exists(status_file):
+            with open(status_file, "r") as f:
+                all_status = json_mod.load(f)
+            for phone, data in all_status.items():
+                candidate_name = ""
+                wa_reqs = session.get("whatsapp_requests", {})
+                if phone in wa_reqs:
+                    candidate_name = wa_reqs[phone].get("candidate_name", "")
+                for cert in data.get("certs", []):
+                    records.append({
+                        "candidate": candidate_name or cert.get("candidate_name", phone),
+                        "cert_title": cert.get("cert_title", "Unknown"),
+                        "issuer": cert.get("issuer", "Unknown"),
+                        "issue_date": cert.get("issue_date", ""),
+                        "tx_hash": cert.get("tx_hash", ""),
+                        "verified_at": cert.get("verified_at", ""),
+                        "is_authentic": cert.get("is_authentic", False),
+                        "confidence": cert.get("confidence_score", 0),
+                        "file_hash": cert.get("file_hash", ""),
+                        "stored_on_chain": cert.get("stored_on_chain", False),
+                    })
+
+        # From session-based manual certs
+        for r in session.get("results", []):
+            if r.get("cert_hash"):
+                records.append({
+                    "candidate": r.get("filename", ""),
+                    "cert_title": "Manual Certificate",
+                    "issuer": "Manual Upload",
+                    "issue_date": "",
+                    "tx_hash": "",
+                    "verified_at": "",
+                    "is_authentic": r.get("cert_status") == "verified",
+                    "confidence": 100 if r.get("cert_status") == "verified" else 0,
+                    "file_hash": r.get("cert_hash", ""),
+                    "stored_on_chain": True,
+                })
+
+        return jsonify({"records": records})
+
+    except Exception as e:
+        return jsonify({"records": [], "error": str(e)})
 
 
 # ──────────────────────────────────────────────
