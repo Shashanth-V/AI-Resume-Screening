@@ -26,8 +26,8 @@
     </a>
     <div class="nav-tabs" id="navTabs">
       <button class="nav-tab active" data-tab="resume"><i class="fas fa-file-alt"></i><span>Resume Screening</span></button>
-      <button class="nav-tab" data-tab="cert"><i class="fas fa-link"></i><span>Certificates</span></button>
       <button class="nav-tab" data-tab="dash"><i class="fas fa-chart-bar"></i><span>Dashboard</span></button>
+      <button class="nav-tab" data-tab="shortlist"><i class="fas fa-user-check"></i><span>Shortlist</span></button>
     </div>
     <div class="nav-user">
       <div class="user-avatar" id="userAvatar"></div>
@@ -121,91 +121,62 @@
       </div>
       <div class="results-grid" id="resultsGrid"></div>
     </div>
-  </section>
 
-  <!-- ─────── TAB 2 : CERTIFICATE VERIFICATION ─────── -->
-  <section class="tab-pane" id="pane-cert">
-    <div class="section-hero anim-fade" style="--d:0">
-      <h1 class="hero-title">Blockchain <span class="gradient-text">Certificate Verification</span></h1>
-      <p class="hero-sub">Store &amp; verify certificate authenticity using SHA-256 hashing and Ethereum smart contracts.</p>
-    </div>
-
-    <!-- Blockchain status -->
-    <div class="bc-status-bar anim-fade" style="--d:1" id="bcStatusBar">
-      <span class="bc-dot" id="bcDot"></span>
-      <span id="bcLabel">Checking blockchain…</span>
-    </div>
-
-    <!-- Candidate Selector -->
-    <div class="glass-card anim-fade" style="--d:1.5" id="candidateSelectorCard">
+    <!-- WhatsApp Certificate Request (slides in after analysis) -->
+    <div id="waRequestCard" class="glass-card anim-fade" style="display:none;--d:3;margin-top:1.5rem;">
       <div class="card-header">
-        <i class="fas fa-user-tag"></i>
-        <h3>Select Candidate</h3>
+        <i class="fab fa-whatsapp" style="color:#25d366"></i>
+        <h3>Automated Certificate Verification Pipeline</h3>
       </div>
-      <p class="card-desc">Choose which candidate this certificate belongs to. Analyzed resumes appear here automatically.</p>
-      <select class="dark-select full-w" id="certCandidate">
-        <option value="">— Select a candidate —</option>
-      </select>
-    </div>
+      <p class="card-desc">Phone numbers were auto-extracted from resumes. WhatsApp messages are being sent automatically to request certificates. Once candidates reply with their certificates, they will be verified and stored on blockchain.</p>
 
-    <div class="grid-2col anim-fade" style="--d:2">
-      <!-- STORE -->
-      <div class="glass-card">
-        <div class="card-header">
-          <i class="fas fa-database"></i>
-          <h3>Store Certificate</h3>
-        </div>
-        <p class="card-desc">Upload a certificate to store its SHA-256 hash immutably on the blockchain.</p>
-        <div class="cert-upload" id="storeUploadZone">
-          <div class="cert-upload-inner" id="storeUploadInner">
-            <i class="fas fa-file-upload"></i>
-            <span>Choose file (PDF / Image)</span>
-            <input type="file" id="storeFileInput" accept=".pdf,image/*" onchange="handleCertFile('store')"/>
-          </div>
-        </div>
-        <div class="cert-file-preview" id="storeFilePreview" style="display:none">
-          <div class="cfp-info">
-            <i class="fas fa-file"></i>
-            <span class="cfp-name" id="storeFileName"></span>
-          </div>
-          <button class="cfp-remove" onclick="removeCertFile('store')"><i class="fas fa-times"></i></button>
-        </div>
-        <button class="btn-primary btn-full mt-1" onclick="storeCert()">
-          <i class="fas fa-cube"></i> Store on Blockchain
-        </button>
-        <div class="cert-result" id="storeResult"></div>
+      <!-- Auto-contacted candidates list -->
+      <div id="waAutoStatus">
+        <label class="wa-label">Candidates Contacted</label>
+        <div id="waAutoList" class="file-chips" style="margin-top:.4rem;"></div>
       </div>
 
-      <!-- VERIFY -->
-      <div class="glass-card">
-        <div class="card-header">
-          <i class="fas fa-check-double"></i>
-          <h3>Verify Certificate</h3>
-        </div>
-        <p class="card-desc">Upload a certificate to check if its hash exists on the blockchain ledger.</p>
-        <div class="cert-upload" id="verifyUploadZone">
-          <div class="cert-upload-inner" id="verifyUploadInner">
-            <i class="fas fa-file-upload"></i>
-            <span>Choose file (PDF / Image)</span>
-            <input type="file" id="verifyFileInput" accept=".pdf,image/*" onchange="handleCertFile('verify')"/>
+      <!-- Manual fallback for candidates without phone -->
+      <div id="waManualSection" style="display:none;margin-top:1rem;">
+        <label class="wa-label" style="color:var(--amber)"><i class="fas fa-exclamation-triangle"></i> Candidates without phone in resume</label>
+        <div id="waManualList" class="file-chips" style="margin-top:.4rem;"></div>
+        <div class="wa-form-row" style="margin-top:.75rem;">
+          <div class="wa-field">
+            <label class="wa-label">Candidate</label>
+            <select class="dark-select full-w" id="waCandidateSelect">
+              <option value="">— Select —</option>
+            </select>
+          </div>
+          <div class="wa-field">
+            <label class="wa-label">WhatsApp Number</label>
+            <div class="wa-phone-row">
+              <select class="dark-select" id="waCountryCode" style="width:80px">
+                <option value="+91">+91</option>
+                <option value="+1">+1</option>
+                <option value="+44">+44</option>
+                <option value="+61">+61</option>
+                <option value="+86">+86</option>
+              </select>
+              <input type="tel" class="dark-input" id="waPhoneInput" placeholder="9876543210" style="flex:1"/>
+            </div>
           </div>
         </div>
-        <div class="cert-file-preview" id="verifyFilePreview" style="display:none">
-          <div class="cfp-info">
-            <i class="fas fa-file"></i>
-            <span class="cfp-name" id="verifyFileName"></span>
-          </div>
-          <button class="cfp-remove" onclick="removeCertFile('verify')"><i class="fas fa-times"></i></button>
-        </div>
-        <button class="btn-primary btn-full mt-1" onclick="verifyCert()">
-          <i class="fas fa-search"></i> Verify Now
+        <button class="btn-primary btn-full mt-1" id="btnSendWA" onclick="sendManualWhatsApp()">
+          <i class="fab fa-whatsapp"></i> Send WhatsApp Request
         </button>
-        <div class="cert-result" id="verifyResult"></div>
+      </div>
+
+      <!-- Global Pipeline Progress -->
+      <div style="margin-top:1.25rem;">
+        <label class="wa-label">Overall Pipeline Progress</label>
+        <div id="waPipelineSummary" style="margin-top:.5rem;font-size:.84rem;color:var(--text2);">
+          <i class="fas fa-spinner fa-spin"></i> Waiting for candidates to respond...
+        </div>
       </div>
     </div>
   </section>
 
-  <!-- ─────── TAB 3 : DASHBOARD ─────── -->
+  <!-- ─────── TAB 2 : DASHBOARD ─────── -->
   <section class="tab-pane" id="pane-dash">
     <div class="section-hero anim-fade" style="--d:0">
       <h1 class="hero-title">Recruiter <span class="gradient-text">Dashboard</span></h1>
@@ -273,18 +244,44 @@
         <table class="dash-table" id="dashTable">
           <thead>
             <tr>
+              <th style="width:40px"><input type="checkbox" id="selectAllCandidates" onchange="toggleSelectAll(this)"/></th>
               <th>Rank</th>
               <th>Candidate</th>
               <th>Score</th>
               <th>Match</th>
               <th>Certificate</th>
-              <th>Actions</th>
+              <th>Trust</th>
             </tr>
           </thead>
           <tbody id="dashBody">
-            <tr class="empty-row"><td colspan="6"><div class="empty-state"><i class="fas fa-inbox"></i><p>No resumes analyzed yet</p><span>Upload resumes in the Resume Screening tab to see results here.</span></div></td></tr>
+            <tr class="empty-row"><td colspan="7"><div class="empty-state"><i class="fas fa-inbox"></i><p>No resumes analyzed yet</p><span>Upload resumes in the Resume Screening tab to see results here.</span></div></td></tr>
           </tbody>
         </table>
+      </div>
+      <!-- Shortlist action bar -->
+      <div id="shortlistBar" style="display:none;margin-top:1rem;align-items:center;gap:1rem;flex-wrap:wrap;">
+        <span id="shortlistCount" style="font-size:.84rem;color:var(--text2)">0 selected</span>
+        <button class="btn-primary" onclick="shortlistSelected()">
+          <i class="fas fa-paper-plane"></i> Shortlist &amp; Notify via WhatsApp
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────── TAB 3 : SHORTLIST ─────── -->
+  <section class="tab-pane" id="pane-shortlist">
+    <div class="section-hero anim-fade" style="--d:0">
+      <h1 class="hero-title">Shortlisted <span class="gradient-text">Candidates</span></h1>
+      <p class="hero-sub">Candidates you've shortlisted. They've been notified via WhatsApp automatically.</p>
+    </div>
+
+    <div class="glass-card anim-fade" style="--d:1">
+      <div class="dash-toolbar">
+        <h3><i class="fas fa-user-check"></i> Shortlisted Candidates</h3>
+        <button class="btn-ghost" onclick="exportShortlistCSV()"><i class="fas fa-download"></i> Export CSV</button>
+      </div>
+      <div id="shortlistedList">
+        <div class="empty-state" id="shortlistEmpty"><i class="fas fa-user-plus"></i><p>No candidates shortlisted yet</p><span>Go to Dashboard, select candidates using checkboxes, and click "Shortlist &amp; Notify".</span></div>
       </div>
     </div>
   </section>
@@ -294,8 +291,7 @@
 <!-- ═══ FOOTER ═══ -->
 <footer class="app-footer">
   <div class="footer-inner">
-    <span><strong>Group No. 5</strong> · REVA University · AI Resume Screening with Blockchain Verification</span>
-    <span class="footer-names">Aryan · Jagan · Anurag</span>
+    <span><strong>RecruitAI</strong> · AI Resume Screening with Blockchain Verification</span>
   </div>
 </footer>
 
