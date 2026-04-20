@@ -13,6 +13,7 @@ from datetime import datetime
 
 import cert_verifier
 import whatsapp_handler
+import resume_matcher
 
 # Try importing blockchain module
 try:
@@ -84,6 +85,18 @@ def update_stage(phone: str, stage: str, message: str, cert_detail: dict = None)
     _write_status(all_status)
 
 
+def reset_status(phone: str, stage: str = "received", message: str = "Starting new certificate verification run."):
+    """Reset per-phone pipeline state before processing a new inbound certificate batch."""
+    all_status = _read_status()
+    all_status[phone] = {
+        "stage": stage,
+        "message": message,
+        "certs": [],
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    _write_status(all_status)
+
+
 # ──────────────────────────────────────────────
 # Fallback local cert store (when blockchain offline)
 # ──────────────────────────────────────────────
@@ -112,7 +125,8 @@ def _store_locally(phone: str, cert_data: dict):
 # ──────────────────────────────────────────────
 
 def process_certificate(phone: str, media_url: str, content_type: str,
-                        candidate_name: str = "", media_index: int = 0):
+                        candidate_name: str = "", media_index: int = 0,
+                        cert_claims: list = None):
     """
     Full pipeline for a single certificate attachment.
     Designed to run in a threading.Thread.
@@ -139,14 +153,34 @@ def process_certificate(phone: str, media_url: str, content_type: str,
     cert_title = verification.get("cert_title", "Unknown Certificate")
     issuer = verification.get("issuer", "Unknown")
 
-    # Send confirmation to candidate
-    whatsapp_handler.send_confirmation(phone_clean, cert_title)
-
     # ── Stage 3: Verify with issuer ──
     update_stage(phone_clean, "verifying", f"Verifying '{cert_title}' with {issuer}...")
 
-    is_authentic = verification.get("is_authentic", False)
+    source = verification.get("verification_source", "none")
+    is_authentic_raw = verification.get("is_authentic", False)
     confidence = verification.get("confidence_score", 0)
+
+    # Strict policy: only accept certs that are source-verifiable AND
+    # match what the candidate claimed in their resume.
+    cert_claims = cert_claims or []
+    compare_text = f"{cert_title} {issuer}".strip()
+    best_claim = ""
+    best_claim_score = 0
+    if cert_claims:
+        for claim in cert_claims:
+            score = resume_matcher._fuzzy_score(claim, compare_text)
+            if score > best_claim_score:
+                best_claim_score = score
+                best_claim = claim
+
+    claim_ok = True if not cert_claims else best_claim_score >= 65
+    source_ok = source in {"coursera_api", "linkedin_api", "udemy_api", "credly_api", "verification_url"}
+
+    is_authentic = bool(is_authentic_raw and source_ok and claim_ok)
+    if not source_ok:
+        confidence = min(confidence, 25)
+    if not claim_ok:
+        confidence = min(confidence, 25)
 
     # ── Stage 4: Store on blockchain ──
     update_stage(phone_clean, "storing", "Storing on blockchain ledger...")
@@ -194,27 +228,29 @@ def process_certificate(phone: str, media_url: str, content_type: str,
         "issuer": issuer,
         "is_authentic": is_authentic,
         "confidence_score": confidence,
+        "best_claim": best_claim,
+        "best_claim_score": best_claim_score,
+        "source_ok": source_ok,
+        "claim_ok": claim_ok,
         "file_hash": file_hash,
         "tx_hash": tx_hash,
         "stored_on_chain": stored_on_chain,
-        "verification_source": verification.get("verification_source", "none"),
+        "verification_source": source,
         "verified_at": datetime.utcnow().isoformat(),
     }
 
     update_stage(phone_clean, "complete", "Certificate verification complete.", cert_detail)
 
-    # Send result to candidate via WhatsApp
-    whatsapp_handler.send_result(phone_clean, cert_title, is_authentic, confidence)
 
-
-def run_pipeline(phone: str, media_list: list, candidate_name: str = ""):
+def run_pipeline(phone: str, media_list: list, candidate_name: str = "", cert_claims: list = None):
     """
     Process all media attachments from a WhatsApp message.
     Each attachment runs through the full pipeline.
+    Sends ONE summary message at the end with all results.
     Designed to be called from a background thread.
     """
     phone_clean = whatsapp_handler.normalize_phone(phone)
-    update_stage(phone_clean, "received", f"Received {len(media_list)} attachment(s). Starting pipeline...")
+    reset_status(phone_clean, "received", f"Received {len(media_list)} attachment(s). Starting pipeline...")
 
     for i, media in enumerate(media_list):
         process_certificate(
@@ -223,23 +259,30 @@ def run_pipeline(phone: str, media_list: list, candidate_name: str = ""):
             content_type=media.get("content_type", ""),
             candidate_name=candidate_name,
             media_index=i,
+            cert_claims=cert_claims,
         )
 
     # Final stage
     status = get_status(phone_clean)
-    total = len(status.get("certs", []))
-    authentic = sum(1 for c in status.get("certs", []) if c.get("is_authentic"))
+    certs = status.get("certs", [])
+    total = len(certs)
+    authentic = sum(1 for c in certs if c.get("is_authentic"))
+    
     update_stage(
         phone_clean, "complete",
         f"All done! {authentic}/{total} certificates verified successfully."
     )
+    
+    # Send ONE summary message with all results
+    if certs:
+        whatsapp_handler.send_summary_results(phone_clean, certs)
 
 
-def start_pipeline_thread(phone: str, media_list: list, candidate_name: str = ""):
+def start_pipeline_thread(phone: str, media_list: list, candidate_name: str = "", cert_claims: list = None):
     """Launch the pipeline in a background thread and return immediately."""
     t = threading.Thread(
         target=run_pipeline,
-        args=(phone, media_list, candidate_name),
+        args=(phone, media_list, candidate_name, cert_claims),
         daemon=True,
     )
     t.start()

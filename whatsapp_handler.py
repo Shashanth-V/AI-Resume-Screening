@@ -18,6 +18,21 @@ TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886"
 _client = None
 
 
+def _sanitize_error_text(text: str) -> str:
+    """Strip ANSI color codes and collapse extra whitespace in error text."""
+    cleaned = re.sub(r"\x1B\[[0-?]*[ -/]*[@-~]", "", text or "")
+    return " ".join(cleaned.split()).strip()
+
+
+def _format_twilio_error(exc: Exception) -> str:
+    """Return a concise, readable Twilio error message."""
+    code = getattr(exc, "code", None)
+    msg = _sanitize_error_text(str(exc))
+    if code:
+        return f"Twilio error {code}: {msg}"
+    return msg or "Twilio request failed"
+
+
 def _get_client():
     """Return the Twilio REST client (created once)."""
     global _client
@@ -75,10 +90,11 @@ def send_certificate_request(phone_number: str, candidate_name: str, cert_list: 
     else:
         certs_text = "  \u2022 (certificates mentioned in your resume)"
 
+    name = (candidate_name or "there").strip()
     body = (
-        f"Hi! RecruitAI here \U0001f44b\n\n"
+        f"Hi {name}! RecruitAI here \U0001f44b\n\n"
         f"We found these certifications on your resume:\n{certs_text}\n\n"
-        f"Please reply with photos/PDFs of your certificates for verification. \u2705"
+        f"Please reply with photos/PDFs of your certificates for verification."
     )
 
     try:
@@ -89,7 +105,7 @@ def send_certificate_request(phone_number: str, candidate_name: str, cert_list: 
         )
         return {"success": True, "message_sid": message.sid}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": _format_twilio_error(e)}
 
 
 # ──────────────────────────────────────────────
@@ -112,7 +128,7 @@ def send_confirmation(phone_number: str, cert_name: str) -> dict:
         )
         return {"success": True, "message_sid": message.sid}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": _format_twilio_error(e)}
 
 
 def send_result(phone_number: str, cert_name: str, is_authentic: bool, confidence: int) -> dict:
@@ -142,7 +158,53 @@ def send_result(phone_number: str, cert_name: str, is_authentic: bool, confidenc
         )
         return {"success": True, "message_sid": message.sid}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": _format_twilio_error(e)}
+
+
+def send_summary_results(phone_number: str, certs: list) -> dict:
+    """
+    Send ONE summary message with all certificate verification results.
+    Called once per batch instead of once per certificate.
+    """
+    client = _get_client()
+    if client is None:
+        return {"success": False, "error": "Twilio not configured"}
+
+    if not certs:
+        return {"success": False, "error": "No certificates to summarize"}
+
+    # Count verified vs rejected
+    verified = [c for c in certs if c.get("is_authentic")]
+    rejected = [c for c in certs if not c.get("is_authentic")]
+
+    # Build summary message
+    body_lines = ["\U0001f4ca *Certificate Verification Summary*\n"]
+    
+    if verified:
+        body_lines.append(f"\u2705 *Verified ({len(verified)}):*")
+        for cert in verified:
+            confidence = cert.get("confidence_score", 0)
+            body_lines.append(f"  • {cert.get('cert_title', 'Unknown')} ({confidence}%)")
+
+    if rejected:
+        body_lines.append(f"\u274c *Not Verified ({len(rejected)}):*")
+        for cert in rejected:
+            confidence = cert.get("confidence_score", 0)
+            body_lines.append(f"  • {cert.get('cert_title', 'Unknown')} ({confidence}%)")
+
+    body_lines.append("\nThank you! — RecruitAI")
+    body = "\n".join(body_lines)
+
+    try:
+        message = client.messages.create(
+            body=body,
+            from_=TWILIO_WHATSAPP_FROM,
+            to=whatsapp_addr(phone_number),
+        )
+        return {"success": True, "message_sid": message.sid}
+    except Exception as e:
+        return {"success": False, "error": _format_twilio_error(e)}
+
 
 
 def send_shortlist_notification(phone_number: str, candidate_name: str) -> dict:
@@ -166,7 +228,7 @@ def send_shortlist_notification(phone_number: str, candidate_name: str) -> dict:
         )
         return {"success": True, "message_sid": message.sid}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": _format_twilio_error(e)}
 
 
 # ──────────────────────────────────────────────

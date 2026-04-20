@@ -257,6 +257,26 @@ def _institution_known(issuer: str) -> bool:
     return any(inst in issuer_l for inst in KNOWN_INSTITUTIONS)
 
 
+def _has_certificate_structure(text: str) -> bool:
+    """Lightweight heuristic to detect certificate-like document structure."""
+    t = (text or "").lower()
+    if not t:
+        return False
+
+    markers = [
+        "certificate",
+        "certifies",
+        "awarded",
+        "issued",
+        "completed",
+        "course",
+        "credential",
+    ]
+    hits = sum(1 for m in markers if m in t)
+    has_year = bool(re.search(r"\b(20\d{2}|19\d{2})\b", t))
+    return hits >= 2 or (hits >= 1 and has_year)
+
+
 def verify_with_issuer(cert_metadata: dict) -> dict:
     """
     Verify certificate authenticity against public records.
@@ -321,6 +341,14 @@ def verify_with_issuer(cert_metadata: dict) -> dict:
         checks_run += 1
         checks_passed += 1
         result["checks_passed"].append("has_credential_id")
+
+    # Check 5: Certificate-like document structure in extracted text
+    checks_run += 1
+    if _has_certificate_structure(raw_text):
+        checks_passed += 1
+        result["checks_passed"].append("certificate_structure")
+        if result["verification_source"] == "none":
+            result["verification_source"] = "document_heuristic"
 
     # Compute confidence (0-100)
     if checks_run > 0:

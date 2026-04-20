@@ -108,7 +108,7 @@ def close_db(exc):
 
 
 def init_db():
-    """Create the users table if it doesn't exist."""
+    """Create users and resumes tables if they don't exist."""
     db = sqlite3.connect(DATABASE)
     db.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -119,11 +119,73 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS resumes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            job_description TEXT,
+            filename TEXT NOT NULL,
+            candidate_name TEXT,
+            phone TEXT,
+            score REAL,
+            cert_claims TEXT,
+            cert_status TEXT DEFAULT 'pending',
+            trust_score REAL DEFAULT 0,
+            wa_status TEXT,
+            wa_error TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
     db.commit()
     db.close()
 
 
 init_db()
+
+
+def save_resume_analysis(user_id: int, job_description: str, filename: str, 
+                         candidate_name: str, phone: str, score: float, 
+                         cert_claims: list, wa_status: str = "", wa_error: str = ""):
+    """Save a single resume analysis to the database."""
+    db = get_db()
+    db.execute("""
+        INSERT INTO resumes 
+        (user_id, job_description, filename, candidate_name, phone, score, cert_claims, wa_status, wa_error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (user_id, job_description, filename, candidate_name, phone, score, 
+          json_mod.dumps(cert_claims), wa_status, wa_error))
+    db.commit()
+
+
+def get_user_resumes(user_id: int):
+    """Get all resume analyses for a user, ordered by creation date (newest first)."""
+    db = get_db()
+    rows = db.execute("""
+        SELECT id, job_description, filename, candidate_name, phone, score, 
+               cert_claims, cert_status, trust_score, wa_status, wa_error, created_at
+        FROM resumes
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+    """, (user_id,)).fetchall()
+    
+    results = []
+    for row in rows:
+        results.append({
+            "id": row["id"],
+            "filename": row["filename"],
+            "candidate_name": row["candidate_name"],
+            "phone": row["phone"],
+            "score": row["score"],
+            "cert_claims": json_mod.loads(row["cert_claims"]) if row["cert_claims"] else [],
+            "cert_status": row["cert_status"],
+            "trust_score": row["trust_score"],
+            "wa_status": row["wa_status"],
+            "wa_error": row["wa_error"],
+            "created_at": row["created_at"],
+            "job_description": row["job_description"]
+        })
+    return results
 
 
 # ──────────────────────────────────────────────
@@ -353,10 +415,10 @@ def upload_resume():
             if r["phone"]:
                 phone_clean = whatsapp_handler.normalize_phone(r["phone"])
                 r["phone"] = phone_clean
-                _register_candidate(phone_clean, r["filename"], claims)
+                _register_candidate(phone_clean, r["candidate_name"], claims)
                 try:
                     wa_result = whatsapp_handler.send_certificate_request(
-                        phone_clean, r["filename"], claims
+                        phone_clean, r["candidate_name"], claims
                     )
                     if wa_result.get("success"):
                         r["wa_status"] = "sent"
@@ -365,10 +427,28 @@ def upload_resume():
                         auto_wa_results.append({"candidate": r["filename"], "phone": phone_clean})
                     else:
                         r["wa_status"] = "failed"
+                        r["wa_error"] = wa_result.get("error", "Unknown WhatsApp send error")
                 except Exception:
                     r["wa_status"] = "failed"
+                    r["wa_error"] = "Unexpected WhatsApp error"
             else:
                 r["wa_status"] = "no_phone"
+
+        # Save each analysis to database for persistence
+        user_id = session.get("user_id")
+        if user_id:
+            for r in results:
+                save_resume_analysis(
+                    user_id=user_id,
+                    job_description=job_description,
+                    filename=r["filename"],
+                    candidate_name=r.get("candidate_name", ""),
+                    phone=r.get("phone", ""),
+                    score=r.get("score", 0),
+                    cert_claims=r.get("cert_claims", []),
+                    wa_status=r.get("wa_status", ""),
+                    wa_error=r.get("wa_error", "")
+                )
 
         # Accumulate results across analyses (don't overwrite)
         all_results = session.get("results", [])
@@ -507,14 +587,26 @@ def blockchain_status():
 @app.route("/dashboard-data")
 @login_required
 def dashboard_data():
-    """Return persisted session data for the recruiter dashboard.
+    """Return persisted dashboard data for the recruiter.
+    Loads from session first, then from database if session is empty.
     Re-ranks with verified candidates first, then by score."""
+    
+    user_id = session.get("user_id")
     results = session.get("results", [])
+    
+    # If session is empty, load from database (first login or new session)
+    if not results and user_id:
+        results = get_user_resumes(user_id)
+        session["results"] = results
+        # Restore total_resumes and total_certs from database
+        session["total_resumes"] = len(results)
+        verified_count = len([r for r in results if r.get("cert_status") == "verified"])
+        session["total_certs"] = verified_count
 
     # Check pipeline status for each candidate and auto-update verification
     for r in results:
         phone = r.get("phone", "")
-        if phone and r.get("cert_status") != "verified":
+        if phone:
             status = worker.get_status(phone)
             if status.get("stage") == "complete":
                 certs = status.get("certs", [])
@@ -522,7 +614,25 @@ def dashboard_data():
                 if authentic:
                     r["cert_status"] = "verified"
                     r["trust_score"] = max(c.get("confidence_score", 0) for c in authentic)
-                    session["total_certs"] = session.get("total_certs", 0) + 1
+                    # Update database with verified status
+                    if r.get("id"):
+                        db = get_db()
+                        db.execute(
+                            "UPDATE resumes SET cert_status = ?, trust_score = ? WHERE id = ?",
+                            ("verified", r["trust_score"], r["id"])
+                        )
+                        db.commit()
+                elif certs:
+                    r["cert_status"] = "rejected"
+                    r["trust_score"] = max(c.get("confidence_score", 0) for c in certs)
+                    # Update database with rejected status
+                    if r.get("id"):
+                        db = get_db()
+                        db.execute(
+                            "UPDATE resumes SET cert_status = ?, trust_score = ? WHERE id = ?",
+                            ("rejected", r["trust_score"], r["id"])
+                        )
+                        db.commit()
 
     # Re-rank: verified first, then by score
     results.sort(key=lambda x: (
@@ -538,6 +648,109 @@ def dashboard_data():
         "total_resumes": session.get("total_resumes", 0),
         "total_certs": session.get("total_certs", 0)
     })
+
+@app.route("/analysis-history")
+@login_required
+def analysis_history():
+    """Get all resume analyses for the logged-in user."""
+    try:
+        user_id = session.get("user_id")
+        if not user_id:
+            return jsonify({"error": "User not authenticated"}), 401
+        resumes = get_user_resumes(user_id)
+        return jsonify({
+            "resumes": resumes,
+            "total": len(resumes)
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/delete-resume/<int:resume_id>", methods=["DELETE"])
+@login_required
+def delete_resume(resume_id):
+    """Delete a single resume by ID (if it belongs to the logged-in user)."""
+    try:
+        user_id = session.get("user_id")
+        db = get_db()
+        
+        # Verify ownership (only delete if this resume belongs to current user)
+        resume = db.execute(
+            "SELECT user_id FROM resumes WHERE id = ?", (resume_id,)
+        ).fetchone()
+        
+        if not resume:
+            return jsonify({"error": "Resume not found"}), 404
+        if resume["user_id"] != user_id:
+            return jsonify({"error": "Unauthorized"}), 403
+        
+        # Delete the resume
+        db.execute("DELETE FROM resumes WHERE id = ?", (resume_id,))
+        db.commit()
+        
+        # Refresh session results
+        session["results"] = get_user_resumes(user_id)
+        
+        return jsonify({"message": "Resume deleted successfully"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/delete-resumes/rejected", methods=["DELETE"])
+@login_required
+def delete_rejected_resumes():
+    """Delete all resumes with rejected certificate status for the logged-in user."""
+    try:
+        user_id = session.get("user_id")
+        db = get_db()
+        
+        # Delete all rejected resumes for this user
+        db.execute(
+            "DELETE FROM resumes WHERE user_id = ? AND cert_status = ?",
+            (user_id, "rejected")
+        )
+        db.commit()
+        
+        deleted_count = db.total_changes
+        
+        # Refresh session results
+        session["results"] = get_user_resumes(user_id)
+        
+        return jsonify({"message": f"Deleted {deleted_count} rejected resume(s)"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/delete-resumes/all", methods=["DELETE"])
+@login_required
+def delete_all_resumes():
+    """Delete ALL resumes for the logged-in user (with confirmation)."""
+    try:
+        user_id = session.get("user_id")
+        
+        # Optional: check for confirmation token to prevent accidental deletion
+        data = request.get_json() or {}
+        confirm = data.get("confirm", False)
+        
+        if not confirm:
+            return jsonify({"error": "Confirmation required. Send confirm=true"}), 400
+        
+        db = get_db()
+        
+        # Delete all resumes for this user
+        db.execute("DELETE FROM resumes WHERE user_id = ?", (user_id,))
+        db.commit()
+        
+        deleted_count = db.total_changes
+        
+        # Clear session results
+        session["results"] = []
+        session["total_resumes"] = 0
+        session["total_certs"] = 0
+        
+        return jsonify({"message": f"Deleted all {deleted_count} resume(s)"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ──────────────────────────────────────────────
@@ -639,6 +852,7 @@ def whatsapp_webhook():
                 phone=phone,
                 media_list=parsed["media"],
                 candidate_name=candidate_name,
+                cert_claims=candidate_info.get("cert_claims", []),
             )
 
         # Twilio requires a TwiML response

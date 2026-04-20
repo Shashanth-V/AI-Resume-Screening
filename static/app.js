@@ -167,6 +167,15 @@ function renderChips() {
 
 function truncate(s, n) { return s.length > n ? s.slice(0, n - 3) + '…' : s; }
 
+function escapeHtml(s = '') {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function updateAnalyzeBtn() {
   const btn = document.getElementById('btnAnalyze');
   if (btn) btn.disabled = !(selectedFiles.length > 0 && jdEl && jdEl.value.trim().length > 0);
@@ -372,7 +381,7 @@ function applyFilters() {
 
   const tbody = document.getElementById('dashBody');
   if (!filtered.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="7"><div class="empty-state"><i class="fas fa-inbox"></i><p>No matching results</p><span>Adjust your filters or analyze more resumes.</span></div></td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8"><div class="empty-state"><i class="fas fa-inbox"></i><p>No matching results</p><span>Adjust your filters or analyze more resumes.</span></div></td></tr>';
     document.getElementById('selectAllCandidates').checked = false;
     updateShortlistBar();
     return;
@@ -392,6 +401,7 @@ function applyFilters() {
     }
     const isShortlisted = shortlistedCandidates.includes(r.filename);
     const realName = r.candidate_name || r.filename;
+    const resumeId = r.id || 0;
     html += `<tr style="animation-delay:${i * 0.04}s">
       <td style="text-align:center"><input type="checkbox" class="candidate-cb" data-name="${r.filename}" data-realname="${realName}" data-phone="${r.phone || ''}" data-score="${pct}" onchange="updateShortlistBar()"${isShortlisted ? ' checked disabled title="Already shortlisted"' : ''}/></td>
       <td><span class="rank-num">#${r.rank}</span></td>
@@ -400,9 +410,12 @@ function applyFilters() {
       <td><div class="score-bar-bg"><div class="score-bar-fill" style="width:${barW}%;background:${color}"></div></div></td>
       <td>${r.cert_status === 'verified'
         ? '<span class="pill-badge pill-verified"><i class="fas fa-check-circle"></i> Verified</span>'
+        : r.cert_status === 'rejected'
+        ? '<span class="pill-badge pill-rejected"><i class="fas fa-times-circle"></i> Rejected</span>'
         : '<span class="pill-badge pill-pending"><i class="fas fa-hourglass-half"></i> Pending</span>'
       }</td>
       <td>${trustHtml}</td>
+      <td style="text-align:center"><button class="btn-icon-small" onclick="deleteResume(${resumeId}, '${r.filename}')" title="Delete this resume"><i class="fas fa-trash" style="color:#ff4d4d;font-size:.9rem"></i></button></td>
     </tr>`;
   });
   tbody.innerHTML = html;
@@ -424,6 +437,50 @@ function exportCSV() {
   a.href = url; a.download = 'recruitai_results.csv'; a.click();
   URL.revokeObjectURL(url);
   showToast('CSV downloaded!');
+}
+
+/* ═══════════════════════════════════════════
+   DELETE RESUMES
+   ═══════════════════════════════════════════ */
+
+async function deleteResume(resumeId, filename) {
+  if (!confirm(`Delete resume "${filename}"?`)) return;
+  try {
+    const res = await fetch(`/delete-resume/${resumeId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Delete failed', 'error'); return; }
+    showToast('Resume deleted successfully', 'success');
+    await loadDashboard();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function deleteRejected() {
+  const rejected = allResults.filter(r => r.cert_status === 'rejected');
+  if (!rejected.length) { showToast('No rejected resumes to delete', 'info'); return; }
+  if (!confirm(`Delete ${rejected.length} rejected resume(s)? This cannot be undone.`)) return;
+  try {
+    const res = await fetch('/delete-resumes/rejected', { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Delete failed', 'error'); return; }
+    showToast(data.message, 'success');
+    await loadDashboard();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function deleteAll() {
+  if (!confirm('Delete ALL resumes? This cannot be undone.')) return;
+  if (!confirm('Are you absolutely sure? This will remove all your analysis history.')) return;
+  try {
+    const res = await fetch('/delete-resumes/all', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true })
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Delete failed', 'error'); return; }
+    showToast(data.message, 'success');
+    await loadDashboard();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 /* ═══════════════════════════════════════════
@@ -455,6 +512,8 @@ function renderAutoWaStatus(results, autoWa) {
     ).join('');
     // Start polling for all contacted candidates
     contacted.forEach(r => startPipelinePolling(r.phone, r.filename));
+  } else if (failed.length) {
+    autoList.innerHTML = '<span style="color:var(--amber)">Phone number was detected, but WhatsApp auto-send failed. Check details below.</span>';
   } else {
     autoList.innerHTML = '<span style="color:var(--text2)">No candidates had phone numbers in their resume</span>';
   }
@@ -463,13 +522,15 @@ function renderAutoWaStatus(results, autoWa) {
   if (noPhone.length || failed.length) {
     manualSec.style.display = 'block';
     const all = [...noPhone, ...failed];
-    manualList.innerHTML = all.map(r =>
-      `<div class="file-chip" style="border-color:var(--amber)">
+    manualList.innerHTML = all.map(r => {
+      const reason = r.wa_error ? `: ${escapeHtml(truncate(r.wa_error, 52))}` : '';
+      const statusText = r.wa_status === 'failed' ? `Send failed${reason}` : 'No phone found';
+      return `<div class="file-chip" style="border-color:var(--amber)">
         <i class="fas fa-phone-slash" style="color:var(--amber)"></i>
         <span class="fc-name">${r.filename}</span>
-        <span class="fc-size">${r.wa_status === 'failed' ? 'Send failed' : 'No phone found'}</span>
-      </div>`
-    ).join('');
+        <span class="fc-size" title="${escapeHtml(r.wa_error || '')}">${statusText}</span>
+      </div>`;
+    }).join('');
     // Populate manual dropdown with only no-phone candidates
     const sel = document.getElementById('waCandidateSelect');
     if (sel) {

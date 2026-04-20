@@ -238,6 +238,8 @@
             </select>
           </div>
           <button class="btn-ghost" onclick="exportCSV()"><i class="fas fa-download"></i> Export CSV</button>
+          <button class="btn-ghost btn-danger" onclick="deleteRejected()" title="Delete all rejected resumes"><i class="fas fa-trash"></i> Delete Rejected</button>
+          <button class="btn-ghost btn-danger" onclick="deleteAll()" title="Delete all resumes"><i class="fas fa-times"></i> Delete All</button>
         </div>
       </div>
       <div class="table-wrap">
@@ -251,10 +253,11 @@
               <th>Match</th>
               <th>Certificate</th>
               <th>Trust</th>
+              <th style="width:60px">Actions</th>
             </tr>
           </thead>
           <tbody id="dashBody">
-            <tr class="empty-row"><td colspan="7"><div class="empty-state"><i class="fas fa-inbox"></i><p>No resumes analyzed yet</p><span>Upload resumes in the Resume Screening tab to see results here.</span></div></td></tr>
+            <tr class="empty-row"><td colspan="8"><div class="empty-state"><i class="fas fa-inbox"></i><p>No resumes analyzed yet</p><span>Upload resumes in the Resume Screening tab to see results here.</span></div></td></tr>
           </tbody>
         </table>
       </div>

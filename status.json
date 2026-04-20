@@ -74,26 +74,45 @@
   },
   "+917411052683": {
     "stage": "complete",
-    "message": "All done! 0/1 certificates verified successfully.",
+    "message": "All done! 0/2 certificates verified successfully.",
     "certs": [
       {
         "cert_title": "",
         "issuer": "",
         "is_authentic": false,
         "confidence_score": 0,
-        "file_hash": "8bb758542c26a98907c1f1a58fbda1624f6e38b2266dce0349a31f2465e80010",
-        "tx_hash": "f26571e5eb357577d5b5a613f179427176060b8e63deee4ae95a0f5c2b8de22b",
-        "stored_on_chain": true,
+        "best_claim": "",
+        "best_claim_score": 0,
+        "source_ok": false,
+        "claim_ok": false,
+        "file_hash": "ec9b384728f73159e3e24628570317ca45c33776186f105bb595ff0abe8173f7",
+        "tx_hash": "",
+        "stored_on_chain": false,
         "verification_source": "none",
-        "verified_at": "2026-03-09T14:06:24.517340"
+        "verified_at": "2026-04-20T15:38:22.766004"
+      },
+      {
+        "cert_title": "",
+        "issuer": "",
+        "is_authentic": false,
+        "confidence_score": 0,
+        "best_claim": "",
+        "best_claim_score": 0,
+        "source_ok": false,
+        "claim_ok": false,
+        "file_hash": "f3579850719eaeb59c0526a00fc933e1aa969d9143ed0b200fb19f33600f0ea7",
+        "tx_hash": "",
+        "stored_on_chain": false,
+        "verification_source": "none",
+        "verified_at": "2026-04-20T15:38:24.618106"
       }
     ],
-    "updated_at": "2026-03-09T14:06:24.895921"
+    "updated_at": "2026-04-20T15:38:25.154168"
   },
   "+917026205991": {
     "stage": "whatsapp_sent",
     "message": "WhatsApp sent to Chaitra_CV_main11.pdf. Waiting for reply...",
     "certs": [],
-    "updated_at": "2026-03-09T17:21:18.192736"
+    "updated_at": "2026-04-20T13:42:37.846169"
   }
 }

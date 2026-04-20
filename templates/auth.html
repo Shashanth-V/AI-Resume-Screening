@@ -8,21 +8,21 @@
   <link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@300,400,500,700&display=swap" rel="stylesheet"/>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    :root{--bg:#0a0a0a;--bg2:#111;--surface:#181818;--accent:#00f5c4;--accent2:#00c49a;--accent-dim:rgba(0,245,196,.08);--text:#f0f0f0;--text2:#888;--danger:#ff4d4d;--border:rgba(255,255,255,.06)}
+    :root{--bg:#0B1020;--bg2:#111827;--surface:#111827;--accent:#3B82F6;--accent2:#8B5CF6;--accent-dim:rgba(59,130,246,.12);--text:#F3F4F6;--text2:#9CA3AF;--success:#22C55E;--warning:#F59E0B;--danger:#EF4444;--border:rgba(255,255,255,.08)}
     html,body{height:100%;font-family:'Satoshi',sans-serif;background:var(--bg);color:var(--text)}
 
     /* ═══ LAYOUT ═══ */
     .auth-shell{display:flex;height:100vh;overflow:hidden}
 
     /* LEFT PANEL — branding / hero */
-    .hero-panel{flex:0 0 48%;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;background:#060606}
+    .hero-panel{flex:0 0 48%;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;background:linear-gradient(135deg,#0B1020 0%,#111827 45%,#1E1B4B 100%)}
     @media(max-width:900px){.hero-panel{display:none}}
 
     /* Animated mesh gradient */
     .mesh{position:absolute;inset:0;background:
-      radial-gradient(ellipse at 20% 50%,rgba(0,245,196,.14) 0%,transparent 60%),
-      radial-gradient(ellipse at 80% 20%,rgba(124,58,237,.10) 0%,transparent 55%),
-      radial-gradient(ellipse at 60% 80%,rgba(0,180,220,.08) 0%,transparent 50%);
+      radial-gradient(ellipse at 20% 50%,rgba(59,130,246,.18) 0%,transparent 60%),
+      radial-gradient(ellipse at 80% 20%,rgba(139,92,246,.14) 0%,transparent 55%),
+      radial-gradient(ellipse at 60% 80%,rgba(34,197,94,.10) 0%,transparent 50%);
       animation:meshShift 12s ease-in-out infinite alternate}
     @keyframes meshShift{0%{filter:hue-rotate(0deg)}100%{filter:hue-rotate(25deg)}}
 
@@ -41,15 +41,26 @@
 
     /* Hero content */
     .hero-content{position:relative;z-index:2;text-align:center;padding:3rem}
-    .hero-logo{width:72px;height:72px;border-radius:18px;background:linear-gradient(135deg,var(--accent),#00b89c);display:inline-flex;align-items:center;justify-content:center;font-size:1.8rem;color:#000;margin-bottom:1.5rem;box-shadow:0 12px 40px rgba(0,245,196,.18)}
+    .hero-logo{width:72px;height:72px;border-radius:18px;background:linear-gradient(135deg,var(--accent),#2563EB);display:inline-flex;align-items:center;justify-content:center;font-size:1.8rem;color:#fff;margin-bottom:1.5rem;box-shadow:0 0 10px rgba(59,130,246,.5),0 0 25px rgba(139,92,246,.35)}
     .hero-content h1{font-family:'Clash Display',sans-serif;font-size:2.6rem;font-weight:700;line-height:1.15;color:#fff;margin-bottom:.6rem}
-    .hero-content h1 span{background:linear-gradient(135deg,var(--accent),#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-    .hero-content p{color:var(--text2);font-size:1rem;max-width:360px;margin:0 auto 2.5rem;line-height:1.6}
+    .hero-content h1 span{background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .hero-content p{color:var(--text2);font-size:1rem;max-width:380px;margin:0 auto 1.6rem;line-height:1.6}
 
     /* Feature pills */
     .feature-pills{display:flex;flex-wrap:wrap;justify-content:center;gap:.5rem}
     .pill{display:inline-flex;align-items:center;gap:6px;padding:.45rem .9rem;border-radius:99px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text2);font-size:.78rem;font-weight:500;backdrop-filter:blur(8px)}
     .pill i{color:var(--accent);font-size:.7rem}
+
+    /* Hero highlights */
+    .hero-highlights{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.55rem;max-width:520px;margin:1.05rem auto 1rem}
+    .hl-card{padding:.55rem .5rem;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid var(--border);text-align:center}
+    .hl-card b{display:block;color:var(--text);font-size:.78rem;line-height:1.2}
+    .hl-card span{display:block;color:var(--text2);font-size:.68rem;margin-top:3px}
+
+    .hero-flow{display:flex;align-items:center;justify-content:center;gap:.45rem;flex-wrap:wrap;margin:.35rem auto 0;max-width:560px}
+    .flow-step{display:inline-flex;align-items:center;gap:6px;padding:.34rem .62rem;border-radius:999px;background:rgba(255,255,255,.03);border:1px solid var(--border);color:var(--text2);font-size:.72rem;font-weight:600}
+    .flow-step i{color:var(--accent);font-size:.7rem}
+    .flow-arrow{font-size:.72rem;color:var(--text2);opacity:.8}
 
     /* RIGHT PANEL — form */
     .form-panel{flex:1;display:flex;align-items:center;justify-content:center;position:relative;padding:2rem}
@@ -63,7 +74,7 @@
     .mobile-brand{display:none;text-align:center;margin-bottom:2rem}
     .mobile-brand .hero-logo{width:48px;height:48px;font-size:1.2rem;margin-bottom:.8rem}
     .mobile-brand h2{font-family:'Clash Display',sans-serif;font-size:1.3rem;color:#fff}
-    @media(max-width:900px){.mobile-brand{display:block}}
+    @media(max-width:900px){.mobile-brand{display:block}.hero-highlights,.hero-flow{display:none}}
 
     /* Form header */
     .form-header{margin-bottom:2rem}
@@ -73,7 +84,7 @@
     /* Tabs */
     .auth-toggle{display:flex;gap:0;background:var(--surface);border-radius:12px;padding:4px;margin-bottom:2rem;border:1px solid var(--border)}
     .auth-toggle button{flex:1;padding:.6rem;border:none;border-radius:9px;background:transparent;color:var(--text2);font-family:'Satoshi',sans-serif;font-weight:600;font-size:.85rem;cursor:pointer;transition:all .25s}
-    .auth-toggle button.active{background:var(--accent);color:#000;box-shadow:0 4px 16px rgba(0,245,196,.2)}
+    .auth-toggle button.active{background:var(--accent);color:#fff;box-shadow:0 4px 16px rgba(59,130,246,.25)}
 
     /* Panels */
     .panel{display:none;animation:panelIn .3s ease}
@@ -103,9 +114,9 @@
     /* Password strength */
     .pw-meter{display:flex;gap:3px;margin-top:.5rem}
     .pw-seg{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.06);transition:background .3s}
-    .pw-seg.weak{background:#ff4d4d}
-    .pw-seg.med{background:#f5a623}
-    .pw-seg.strong{background:var(--accent)}
+    .pw-seg.weak{background:var(--danger)}
+    .pw-seg.med{background:var(--warning)}
+    .pw-seg.strong{background:var(--success)}
     .pw-hint{font-size:.68rem;color:var(--text2);margin-top:3px}
 
     /* Remember me */
@@ -115,8 +126,8 @@
 
     /* Submit */
     .btn-auth{width:100%;padding:.85rem;border:none;border-radius:12px;font-family:'Satoshi',sans-serif;font-weight:700;font-size:.95rem;cursor:pointer;position:relative;overflow:hidden;transition:all .3s;display:flex;align-items:center;justify-content:center;gap:8px}
-    .btn-auth.primary{background:linear-gradient(135deg,var(--accent),#00b89c);color:#000;box-shadow:0 6px 24px rgba(0,245,196,.18)}
-    .btn-auth.primary:hover{transform:translateY(-2px);box-shadow:0 10px 36px rgba(0,245,196,.28)}
+    .btn-auth.primary{background:linear-gradient(135deg,var(--accent),#2563EB);color:#fff;box-shadow:0 6px 24px rgba(59,130,246,.22)}
+    .btn-auth.primary:hover{transform:translateY(-2px);box-shadow:0 10px 36px rgba(59,130,246,.34)}
     .btn-auth:disabled{opacity:.45;cursor:not-allowed;transform:none!important}
 
     /* Ripple */
@@ -129,7 +140,7 @@
 
     /* Form error banner */
     .form-alert{padding:.7rem 1rem;border-radius:10px;font-size:.82rem;display:none;align-items:center;gap:8px;margin-bottom:1.2rem}
-    .form-alert.error{background:rgba(255,77,77,.08);border:1px solid rgba(255,77,77,.15);color:var(--danger)}
+    .form-alert.error{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.16);color:var(--danger)}
     .form-alert.show{display:flex}
 
     /* Divider */
@@ -155,13 +166,25 @@
     <div class="hero-content">
       <div class="hero-logo"><i class="fas fa-brain"></i></div>
       <h1>Hire <span>Smarter</span>.<br/>Trust <span>More</span>.</h1>
-      <p>AI-powered resume screening paired with blockchain certificate verification — a single platform for modern recruiting.</p>
+      <p>Shortlist faster, verify certificates with confidence, and keep every hiring decision transparent for your team.</p>
       <div class="feature-pills">
         <span class="pill"><i class="fas fa-check"></i>TF-IDF Analysis</span>
         <span class="pill"><i class="fas fa-check"></i>Cosine Similarity</span>
         <span class="pill"><i class="fas fa-check"></i>SHA-256 Hashing</span>
         <span class="pill"><i class="fas fa-check"></i>Smart Contracts</span>
         <span class="pill"><i class="fas fa-check"></i>Real-time Ranking</span>
+      </div>
+      <div class="hero-highlights">
+        <div class="hl-card"><b>Resume Match</b><span>Role-fit scoring</span></div>
+        <div class="hl-card"><b>Cert Trust</b><span>Source + claim checks</span></div>
+        <div class="hl-card"><b>Team Ready</b><span>Trackable decisions</span></div>
+      </div>
+      <div class="hero-flow">
+        <span class="flow-step"><i class="fas fa-upload"></i>Upload</span>
+        <span class="flow-arrow"><i class="fas fa-chevron-right"></i></span>
+        <span class="flow-step"><i class="fas fa-filter"></i>Rank</span>
+        <span class="flow-arrow"><i class="fas fa-chevron-right"></i></span>
+        <span class="flow-step"><i class="fas fa-shield-check"></i>Verify</span>
       </div>
     </div>
   </div>

@@ -156,14 +156,21 @@ def extract_cert_claims(resume_text: str) -> list:
     if not resume_text:
         return []
 
-    claims = set()
+    claims = []
+
+    def add_claim(text: str):
+        clean = re.sub(r"\s+", " ", (text or "").strip()).rstrip(".,;:")
+        if not (5 < len(clean) < 120):
+            return
+        # Case-insensitive de-dup while preserving first-seen order
+        seen = {c.lower() for c in claims}
+        if clean.lower() not in seen:
+            claims.append(clean)
 
     for pattern in CERT_PATTERNS:
         matches = re.findall(pattern, resume_text, re.IGNORECASE)
         for m in matches:
-            clean = m.strip().rstrip(".,;:")
-            if 5 < len(clean) < 120:
-                claims.add(clean)
+            add_claim(m)
 
     # Also look for lines that contain certification keywords (short lines only)
     lines = resume_text.split("\n")
@@ -172,10 +179,46 @@ def extract_cert_claims(resume_text: str) -> list:
         line_l = line_s.lower()
         for kw in CERT_KEYWORDS:
             if kw in line_l and 10 < len(line_s) < 60:
-                claims.add(line_s.rstrip(".,;:"))
+                add_claim(line_s)
                 break
 
-    return list(claims)[:8]  # Cap at 8 claims
+    # Section-aware extraction: if a "certifications" heading exists,
+    # capture a few short lines that follow it as explicit claims.
+    section_claims = []
+
+    def add_section_claim(text: str):
+        clean = re.sub(r"\s+", " ", (text or "").strip())
+        clean = re.sub(r"^[\-\*\u2022\u2023\u25E6\u2043\u2219]+\s*", "", clean)
+        clean = clean.rstrip(".,;:")
+        if not (5 < len(clean) < 120):
+            return
+        low = clean.lower()
+        if low in {"certifications", "certification", "certificate"}:
+            return
+        seen = {c.lower() for c in section_claims}
+        if low not in seen:
+            section_claims.append(clean)
+
+    for idx, line in enumerate(lines):
+        if re.search(r"^\s*certifications?\s*$", line, re.IGNORECASE):
+            for next_line in lines[idx + 1: idx + 7]:
+                next_s = next_line.strip()
+                if not next_s:
+                    continue
+                if len(next_s) > 80:
+                    continue
+                # Stop when next major section starts.
+                if re.search(r"^(education|experience|projects|skills|achievements|interests|languages)\b", next_s, re.IGNORECASE):
+                    break
+                if re.match(r"^[A-Z][A-Z\s]{2,}$", next_s):
+                    break
+                add_section_claim(next_s)
+
+    # If explicit Certifications section exists, trust it over generic matches.
+    if section_claims:
+        return section_claims[:8]
+
+    return claims[:8]  # Cap at 8 claims
 
 
 # ──────────────────────────────────────────────
