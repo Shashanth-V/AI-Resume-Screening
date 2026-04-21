@@ -10,6 +10,8 @@ let lastResults   = [];      // Last batch analysis results
 let allResults    = [];      // Cumulative results across all analyses
 let totalResumes  = 0;
 let totalCerts    = 0;
+let currentUserRole = 'recruiter';
+let activityFeed = [];
 
 let pipelinePollers = {};    // phone -> intervalId for pipeline polling
 let shortlistedCandidates = []; // Shortlisted candidate names
@@ -62,6 +64,46 @@ async function doLogout() {
     await fetch('/logout', { method: 'POST' });
   } catch (e) { /* ignore */ }
   window.location.href = '/auth';
+}
+
+async function loadCurrentUser() {
+  try {
+    const res = await fetch('/me');
+    const data = await res.json();
+    if (data && data.name) {
+      document.getElementById('userAvatar').textContent = data.name.charAt(0).toUpperCase();
+      document.getElementById('userName').textContent = data.name;
+    }
+    currentUserRole = (data && data.role) ? data.role : 'recruiter';
+  } catch {
+    currentUserRole = 'recruiter';
+  }
+  const roleBadge = document.getElementById('userRoleBadge');
+  if (roleBadge) {
+    roleBadge.textContent = currentUserRole.replace('_', ' ').toUpperCase();
+  }
+  applyRoleAccess();
+}
+
+function applyRoleAccess() {
+  document.querySelectorAll('[data-role-visible]').forEach(el => {
+    const allowed = (el.getAttribute('data-role-visible') || '')
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean);
+    const show = !allowed.length || allowed.includes(currentUserRole);
+    el.style.display = show ? '' : 'none';
+  });
+
+  const isViewer = currentUserRole === 'viewer';
+  if (isViewer) {
+    const inputs = ['jobDesc', 'fileInput', 'waPhoneInput'];
+    inputs.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = true;
+    });
+    showToast('Viewer mode: write actions are disabled', 'info');
+  }
 }
 
 /* ═══════════════════════════════════════════
@@ -240,7 +282,7 @@ function renderResultCards(results) {
     const pct  = r.score;
     const circumference = 2 * Math.PI * 38;
     const offset = circumference - (pct / 100) * circumference;
-    const color = pct >= 70 ? '#00d4aa' : pct >= 40 ? '#f5a623' : '#ff4d4d';
+    const color = pct >= 70 ? '#22C55E' : pct >= 40 ? '#F59E0B' : '#EF4444';
     const label = pct >= 70 ? 'Excellent' : pct >= 40 ? 'Good' : pct >= 20 ? 'Average' : 'Poor';
     const labelCls = pct >= 70 ? 'lbl-green' : pct >= 40 ? 'lbl-amber' : 'lbl-red';
     const isTop = r.rank === 1;
@@ -253,6 +295,7 @@ function renderResultCards(results) {
       <div class="rc-info">
         <h4 class="rc-name">${r.filename}</h4>
         <span class="rc-label ${labelCls}">${label} Match</span>
+        <div class="rc-mini">TF-IDF ${Math.round(r.tfidf_score || r.score)}% · Semantic ${Math.round(r.semantic_score || r.score)}%</div>
         ${isTop ? '<span class="rc-badge">⭐ Top Match</span>' : ''}
       </div>
       <div class="rc-ring">
@@ -344,7 +387,7 @@ function renderSparkline(id, data) {
   if (!el) return;
   const max = Math.max(...data, 1);
   const points = data.map((v, i) => `${(i / (data.length - 1)) * 100},${100 - (v / max) * 80}`).join(' ');
-  el.innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline fill="none" stroke="rgba(0,212,170,.5)" stroke-width="2" points="${points}"/></svg>`;
+  el.innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline fill="none" stroke="rgba(59,130,246,.58)" stroke-width="2" points="${points}"/></svg>`;
 }
 
 function generateSparkData(seed) {
@@ -368,7 +411,8 @@ function applyFilters() {
 
   let filtered = allResults.filter(r => r.score >= minScore);
   if (certFilter === 'verified') filtered = filtered.filter(r => r.cert_status === 'verified');
-  if (certFilter === 'pending') filtered = filtered.filter(r => r.cert_status !== 'verified');
+  if (certFilter === 'pending') filtered = filtered.filter(r => !r.cert_status || r.cert_status === 'pending');
+  if (certFilter === 'rejected') filtered = filtered.filter(r => r.cert_status === 'rejected');
 
   // Sort: verified first, then descending by score, and re-rank
   filtered.sort((a, b) => {
@@ -381,15 +425,16 @@ function applyFilters() {
 
   const tbody = document.getElementById('dashBody');
   if (!filtered.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="8"><div class="empty-state"><i class="fas fa-inbox"></i><p>No matching results</p><span>Adjust your filters or analyze more resumes.</span></div></td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8"><div class="empty-state"><i class="fas fa-compass"></i><p>No candidates match this filter yet</p><span>Try lowering min score, switch status filter, or run a new analysis batch.</span></div></td></tr>';
     document.getElementById('selectAllCandidates').checked = false;
     updateShortlistBar();
+    renderTrustInsights(allResults);
     return;
   }
   let html = '';
   filtered.forEach((r, i) => {
     const pct = r.score;
-    const color = pct >= 70 ? '#00d4aa' : pct >= 40 ? '#f5a623' : '#ff4d4d';
+    const color = pct >= 70 ? '#22C55E' : pct >= 40 ? '#F59E0B' : '#EF4444';
     const barW = Math.max(pct, 4);
     const trust = r.trust_score;
     let trustHtml;
@@ -405,7 +450,10 @@ function applyFilters() {
     html += `<tr style="animation-delay:${i * 0.04}s">
       <td style="text-align:center"><input type="checkbox" class="candidate-cb" data-name="${r.filename}" data-realname="${realName}" data-phone="${r.phone || ''}" data-score="${pct}" onchange="updateShortlistBar()"${isShortlisted ? ' checked disabled title="Already shortlisted"' : ''}/></td>
       <td><span class="rank-num">#${r.rank}</span></td>
-      <td class="td-name">${r.filename}${isShortlisted ? ' <i class="fas fa-star" style="color:var(--amber);font-size:.7rem" title="Shortlisted"></i>' : ''}</td>
+      <td class="td-name">
+        <button class="expand-btn" onclick="toggleExplain(${r.id || i})" title="Explain this score"><i class="fas fa-chevron-down"></i></button>
+        ${r.filename}${isShortlisted ? ' <i class="fas fa-star" style="color:var(--amber);font-size:.7rem" title="Shortlisted"></i>' : ''}
+      </td>
       <td>${pct}%</td>
       <td><div class="score-bar-bg"><div class="score-bar-fill" style="width:${barW}%;background:${color}"></div></div></td>
       <td>${r.cert_status === 'verified'
@@ -415,12 +463,67 @@ function applyFilters() {
         : '<span class="pill-badge pill-pending"><i class="fas fa-hourglass-half"></i> Pending</span>'
       }</td>
       <td>${trustHtml}</td>
-      <td style="text-align:center"><button class="btn-icon-small" onclick="deleteResume(${resumeId}, '${r.filename}')" title="Delete this resume"><i class="fas fa-trash" style="color:#ff4d4d;font-size:.9rem"></i></button></td>
+      <td style="text-align:center"><button class="btn-icon-small" onclick="deleteResume(${resumeId}, '${r.filename}')" title="Delete this resume" ${!['admin','hr_admin'].includes(currentUserRole) ? 'style="display:none"' : ''}><i class="fas fa-trash" style="color:#EF4444;font-size:.9rem"></i></button></td>
+    </tr>
+    <tr class="dash-expand-row" id="exp-${r.id || i}">
+      <td colspan="8">
+        <div class="dash-expand-content" id="exp-content-${r.id || i}">
+          ${buildExplainHtml(r)}
+        </div>
+      </td>
     </tr>`;
   });
   tbody.innerHTML = html;
   document.getElementById('selectAllCandidates').checked = false;
   updateShortlistBar();
+  renderTrustInsights(filtered);
+}
+
+function buildExplainHtml(r) {
+  const tfidf = Math.round(r.tfidf_score != null ? r.tfidf_score : r.score);
+  const semantic = Math.round(r.semantic_score != null ? r.semantic_score : r.score);
+  const trust = r.trust_score != null ? Math.round(r.trust_score) : null;
+  const certStatus = r.cert_status || 'pending';
+  const review = r.score < 70 || certStatus !== 'verified' ? 'Needs recruiter review' : 'Strong auto-pass signal';
+  return `<div class="explain-grid">
+    <div class="explain-item"><span>Hybrid Match</span><b>${Math.round(r.score)}%</b></div>
+    <div class="explain-item"><span>TF-IDF Fit</span><b>${tfidf}%</b></div>
+    <div class="explain-item"><span>Semantic Fit</span><b>${semantic}%</b></div>
+    <div class="explain-item"><span>Cert Status</span><b>${certStatus.toUpperCase()}</b></div>
+    <div class="explain-item"><span>Trust Impact</span><b>${trust == null ? 'N/A' : trust + '%'}</b></div>
+    <div class="explain-item"><span>Recommendation</span><b>${review}</b></div>
+  </div>`;
+}
+
+function toggleExplain(id) {
+  const row = document.getElementById(`exp-content-${id}`);
+  if (!row) return;
+  row.classList.toggle('open');
+}
+
+function renderTrustInsights(results) {
+  const source = results && results.length ? results : allResults;
+  const verified = source.filter(r => r.cert_status === 'verified').length;
+  const rejected = source.filter(r => r.cert_status === 'rejected').length;
+  const pending = source.length - verified - rejected;
+  const trustValues = source.filter(r => r.trust_score != null).map(r => Number(r.trust_score));
+  const avgTrust = trustValues.length ? Math.round(trustValues.reduce((a, b) => a + b, 0) / trustValues.length) : 0;
+  const waSent = source.filter(r => r.wa_status === 'sent').length;
+  const highMatch = source.filter(r => Number(r.score) >= 70).length;
+  const needsReview = source.filter(r => Number(r.score) < 70 || r.cert_status !== 'verified').length;
+
+  setText('iVerified', verified);
+  setText('iRejected', rejected);
+  setText('iPending', Math.max(0, pending));
+  setText('iAvgTrust', avgTrust + '%');
+  setText('iWaSent', waSent);
+  setText('iHighMatch', highMatch);
+  setText('iNeedsReview', needsReview);
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
 }
 
 /* ═══════════════════════════════════════════
@@ -637,6 +740,11 @@ function toggleSelectAll(masterCb) {
 }
 
 function updateShortlistBar() {
+  if (currentUserRole === 'viewer') {
+    const bar = document.getElementById('shortlistBar');
+    if (bar) bar.style.display = 'none';
+    return;
+  }
   const checked = document.querySelectorAll('.candidate-cb:checked:not(:disabled)');
   const bar = document.getElementById('shortlistBar');
   const countEl = document.getElementById('shortlistCount');
@@ -675,6 +783,7 @@ async function shortlistSelected() {
       }
     });
     showToast(`${data.notified} candidate(s) shortlisted & notified!`);
+    await loadAuditSummary();
     applyFilters(); // Re-render to show shortlisted state
   } catch (err) {
     showToast('Error: ' + err.message, 'error');
@@ -691,6 +800,8 @@ function renderShortlist() {
     listEl.innerHTML = '';
     listEl.appendChild(emptyEl);
     emptyEl.style.display = '';
+    const feed = document.getElementById('activityFeed');
+    if (feed) feed.innerHTML = '<div class="activity-empty">No recruiter actions yet. Shortlist candidates to start activity tracking.</div>';
     return;
   }
   if (emptyEl) emptyEl.style.display = 'none';
@@ -721,6 +832,66 @@ function renderShortlist() {
   listEl.innerHTML = html;
 }
 
+async function runShortlistAction(action) {
+  if (!shortlistedCandidates.length) {
+    showToast('Shortlist at least one candidate first', 'info');
+    return;
+  }
+  try {
+    const res = await fetch('/candidate-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, candidates: shortlistedCandidates })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Action failed', 'error');
+      return;
+    }
+    showToast(`${action.replace('_', ' ')} recorded for ${data.count} candidate(s)`);
+    await loadAuditSummary();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
+async function loadAuditSummary() {
+  try {
+    const res = await fetch('/audit-summary');
+    const data = await res.json();
+    const events = (data.activity || [])
+      .filter(e => e.action === 'candidate_action')
+      .slice(0, 8);
+    activityFeed = events;
+    setText('iAuditEvents', events.length);
+    renderActivityFeed(events);
+  } catch {
+    renderActivityFeed([]);
+  }
+}
+
+function renderActivityFeed(events) {
+  const feed = document.getElementById('activityFeed');
+  if (!feed) return;
+  if (!events.length) {
+    feed.innerHTML = '<div class="activity-empty">No activity captured yet.</div>';
+    return;
+  }
+  feed.innerHTML = events.map(e => {
+    const action = (e.details && e.details.action) || e.target || '';
+    const count = (e.details && e.details.count) || 0;
+    const labelMap = {
+      invite: 'Interview invite sent',
+      request_docs: 'Requested missing documents',
+      hold: 'Moved to hold',
+      reject: 'Marked as rejected'
+    };
+    const label = labelMap[action] || 'Recruiter action completed';
+    const suffix = count ? ` (${count} candidate${count > 1 ? 's' : ''})` : '';
+    return `<div class="activity-item"><i class="fas fa-dot-circle"></i><span>${label}${suffix}</span></div>`;
+  }).join('');
+}
+
 function exportShortlistCSV() {
   if (!shortlistedCandidates.length) { showToast('No shortlisted candidates to export', 'info'); return; }
   let csv = 'Candidate,Match Score (%),Certificate Status,Phone\n';
@@ -747,7 +918,7 @@ function launchConfetti() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
   const pieces = [];
-  const colors = ['#00d4aa', '#7c3aed', '#f5a623', '#ff4d4d', '#00b4d8', '#fff'];
+  const colors = ['#3B82F6', '#8B5CF6', '#22C55E', '#F59E0B', '#EF4444', '#fff'];
   for (let i = 0; i < 120; i++) {
     pieces.push({
       x: Math.random() * canvas.width,
@@ -782,6 +953,12 @@ function launchConfetti() {
 }
 
 /* ═══════════════════════════════════════════
-   INIT
-   ═══════════════════════════════════════════ */
-loadDashboard();
+  INIT
+  ═══════════════════════════════════════════ */
+async function initApp() {
+  await loadCurrentUser();
+  await loadDashboard();
+  await loadAuditSummary();
+}
+
+initApp();

@@ -11,6 +11,7 @@ import re
 import hashlib
 import sqlite3
 import secrets
+import time
 from functools import wraps
 
 from flask import (
@@ -54,6 +55,9 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 DATABASE = os.path.join(BASE_DIR, "users.db")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
+VALID_ROLES = {"viewer", "recruiter", "hr_admin", "admin"}
+REQUEST_TICKS = {}
 
 STOP_WORDS = set(stopwords.words("english"))
 ALLOWED_EXTENSIONS = {"pdf"}
@@ -116,6 +120,7 @@ def init_db():
             fullname TEXT NOT NULL,
             email TEXT NOT NULL UNIQUE,
             password TEXT NOT NULL,
+            role TEXT DEFAULT 'recruiter',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -128,6 +133,8 @@ def init_db():
             candidate_name TEXT,
             phone TEXT,
             score REAL,
+            tfidf_score REAL,
+            semantic_score REAL,
             cert_claims TEXT,
             cert_status TEXT DEFAULT 'pending',
             trust_score REAL DEFAULT 0,
@@ -137,8 +144,30 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            target TEXT,
+            details TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+    _ensure_column(db, "users", "role", "TEXT DEFAULT 'recruiter'")
+    _ensure_column(db, "resumes", "tfidf_score", "REAL")
+    _ensure_column(db, "resumes", "semantic_score", "REAL")
     db.commit()
     db.close()
+
+
+def _ensure_column(db_conn, table_name: str, col_name: str, col_def: str):
+    """Run lightweight SQLite schema migration for missing columns."""
+    cols = db_conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    existing = {c[1] for c in cols}
+    if col_name not in existing:
+        db_conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}")
 
 
 init_db()
@@ -146,15 +175,16 @@ init_db()
 
 def save_resume_analysis(user_id: int, job_description: str, filename: str, 
                          candidate_name: str, phone: str, score: float, 
-                         cert_claims: list, wa_status: str = "", wa_error: str = ""):
+                                                 cert_claims: list, wa_status: str = "", wa_error: str = "",
+                                                 tfidf_score: float = 0.0, semantic_score: float = 0.0):
     """Save a single resume analysis to the database."""
     db = get_db()
     db.execute("""
         INSERT INTO resumes 
-        (user_id, job_description, filename, candidate_name, phone, score, cert_claims, wa_status, wa_error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (user_id, job_description, filename, candidate_name, phone, score, tfidf_score, semantic_score, cert_claims, wa_status, wa_error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (user_id, job_description, filename, candidate_name, phone, score, 
-          json_mod.dumps(cert_claims), wa_status, wa_error))
+                    tfidf_score, semantic_score, json_mod.dumps(cert_claims), wa_status, wa_error))
     db.commit()
 
 
@@ -163,7 +193,7 @@ def get_user_resumes(user_id: int):
     db = get_db()
     rows = db.execute("""
         SELECT id, job_description, filename, candidate_name, phone, score, 
-               cert_claims, cert_status, trust_score, wa_status, wa_error, created_at
+             tfidf_score, semantic_score, cert_claims, cert_status, trust_score, wa_status, wa_error, created_at
         FROM resumes
         WHERE user_id = ?
         ORDER BY created_at DESC
@@ -177,6 +207,8 @@ def get_user_resumes(user_id: int):
             "candidate_name": row["candidate_name"],
             "phone": row["phone"],
             "score": row["score"],
+            "tfidf_score": row["tfidf_score"] if row["tfidf_score"] is not None else row["score"],
+            "semantic_score": row["semantic_score"] if row["semantic_score"] is not None else row["score"],
             "cert_claims": json_mod.loads(row["cert_claims"]) if row["cert_claims"] else [],
             "cert_status": row["cert_status"],
             "trust_score": row["trust_score"],
@@ -200,6 +232,21 @@ def login_required(f):
             return redirect(url_for("auth_page"))
         return f(*args, **kwargs)
     return decorated
+
+
+def roles_required(*allowed_roles):
+    """Allow access only to users with one of the allowed roles."""
+    def wrapper(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            if "user_id" not in session:
+                return redirect(url_for("auth_page"))
+            role = session.get("user_role", "recruiter")
+            if role not in allowed_roles:
+                return jsonify({"error": "Insufficient permissions for this action."}), 403
+            return f(*args, **kwargs)
+        return decorated
+    return wrapper
 
 
 # ──────────────────────────────────────────────
@@ -235,6 +282,45 @@ def sha256_hash(file_bytes: bytes) -> str:
     return hashlib.sha256(file_bytes).hexdigest()
 
 
+def semantic_overlap_score(job_text: str, resume_text: str) -> float:
+    """A lightweight semantic proxy using normalized token overlap."""
+    jt = set(job_text.split())
+    rt = set(resume_text.split())
+    if not jt or not rt:
+        return 0.0
+    overlap = len(jt.intersection(rt)) / len(jt.union(rt))
+    return round(overlap * 100, 2)
+
+
+def log_audit(action: str, target: str = "", details: dict | None = None):
+    """Write user-scoped action logs for traceability and review."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return
+    db = get_db()
+    db.execute(
+        "INSERT INTO audit_logs (user_id, action, target, details) VALUES (?, ?, ?, ?)",
+        (user_id, action, target, json_mod.dumps(details or {}))
+    )
+    db.commit()
+
+
+@app.before_request
+def lightweight_rate_guard():
+    """Basic per-user/per-IP request throttling for write endpoints."""
+    if request.method in {"GET", "OPTIONS", "HEAD"}:
+        return None
+    key = f"{session.get('user_id', 'anon')}:{request.remote_addr or 'local'}"
+    now = time.time()
+    bucket = REQUEST_TICKS.get(key, [])
+    bucket = [t for t in bucket if now - t < 60]
+    if len(bucket) >= 180:
+        return jsonify({"error": "Rate limit reached. Try again shortly."}), 429
+    bucket.append(now)
+    REQUEST_TICKS[key] = bucket
+    return None
+
+
 # ──────────────────────────────────────────────
 # Auth routes
 # ──────────────────────────────────────────────
@@ -255,11 +341,14 @@ def register():
         fullname = data.get("fullname", "").strip()
         email = data.get("email", "").strip().lower()
         password = data.get("password", "")
+        role = data.get("role", "recruiter")
 
         if not fullname or not email or not password:
             return jsonify({"error": "All fields are required."}), 400
         if len(password) < 6:
             return jsonify({"error": "Password must be at least 6 characters."}), 400
+        if role not in VALID_ROLES:
+            role = "recruiter"
 
         db = get_db()
         existing = db.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
@@ -268,16 +357,19 @@ def register():
 
         hashed = generate_password_hash(password)
         db.execute(
-            "INSERT INTO users (fullname, email, password) VALUES (?, ?, ?)",
-            (fullname, email, hashed)
+            "INSERT INTO users (fullname, email, password, role) VALUES (?, ?, ?, ?)",
+            (fullname, email, hashed, role)
         )
         db.commit()
 
         # Auto-login after registration
-        user = db.execute("SELECT id, fullname, email FROM users WHERE email = ?", (email,)).fetchone()
+        user = db.execute("SELECT id, fullname, email, role FROM users WHERE email = ?", (email,)).fetchone()
         session["user_id"] = user["id"]
         session["user_name"] = user["fullname"]
         session["user_email"] = user["email"]
+        session["user_role"] = user["role"] or "recruiter"
+
+        log_audit("user_registered", user["email"], {"role": session["user_role"]})
 
         return jsonify({"message": "Account created successfully!", "name": user["fullname"]})
 
@@ -305,6 +397,9 @@ def login():
         session["user_id"] = user["id"]
         session["user_name"] = user["fullname"]
         session["user_email"] = user["email"]
+        session["user_role"] = user["role"] or "recruiter"
+
+        log_audit("user_login", user["email"], {"role": session["user_role"]})
 
         return jsonify({"message": "Login successful!", "name": user["fullname"]})
 
@@ -325,7 +420,8 @@ def current_user():
     """Return the currently logged-in user's info."""
     return jsonify({
         "name": session.get("user_name"),
-        "email": session.get("user_email")
+        "email": session.get("user_email"),
+        "role": session.get("user_role", "recruiter")
     })
 
 
@@ -337,7 +433,11 @@ def current_user():
 @login_required
 def index():
     """Render the single-page dashboard frontend."""
-    return render_template("index.html", user_name=session.get("user_name", ""))
+    return render_template(
+        "index.html",
+        user_name=session.get("user_name", ""),
+        user_role=session.get("user_role", "recruiter")
+    )
 
 
 # ──────────────────────────────────────────────
@@ -346,6 +446,7 @@ def index():
 
 @app.route("/upload-resume", methods=["POST"])
 @login_required
+@roles_required("recruiter", "hr_admin", "admin")
 def upload_resume():
     """
     Accept multiple PDF resumes + a job description.
@@ -363,12 +464,13 @@ def upload_resume():
         cleaned_jd = clean_text(job_description)
         corpus = [cleaned_jd]       # index 0 = job description
         filenames = []
+        cleaned_resumes = []
 
         for f in files:
             if not allowed_file(f.filename):
                 return jsonify({"error": f"Invalid file type: {f.filename}. Only PDF allowed."}), 400
 
-            safe_name = secure_filename(f.filename)
+            safe_name = secure_filename(f.filename or "resume.pdf")
             save_path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
             f.save(save_path)
 
@@ -377,17 +479,23 @@ def upload_resume():
             cleaned = clean_text(raw_text)
             corpus.append(cleaned)
             filenames.append(safe_name)
+            cleaned_resumes.append(cleaned)
 
         # TF-IDF vectorisation + cosine similarity
         vectorizer = TfidfVectorizer()
         tfidf_matrix = vectorizer.fit_transform(corpus)
-        similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
+        similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()  # type: ignore[index]
 
         results = []
-        for name, score in zip(filenames, similarities):
+        for idx, (name, score) in enumerate(zip(filenames, similarities)):
+            tfidf_score = round(float(score) * 100, 2)
+            semantic_score = semantic_overlap_score(cleaned_jd, cleaned_resumes[idx])
+            hybrid_score = round((0.7 * tfidf_score) + (0.3 * semantic_score), 2)
             results.append({
                 "filename": name,
-                "score": round(float(score) * 100, 2)
+                "score": hybrid_score,
+                "tfidf_score": tfidf_score,
+                "semantic_score": semantic_score
             })
 
         results.sort(key=lambda x: x["score"], reverse=True)
@@ -445,10 +553,17 @@ def upload_resume():
                     candidate_name=r.get("candidate_name", ""),
                     phone=r.get("phone", ""),
                     score=r.get("score", 0),
+                    tfidf_score=r.get("tfidf_score", 0),
+                    semantic_score=r.get("semantic_score", 0),
                     cert_claims=r.get("cert_claims", []),
                     wa_status=r.get("wa_status", ""),
                     wa_error=r.get("wa_error", "")
                 )
+
+        log_audit("resume_batch_analyzed", "resume_upload", {
+            "count": len(results),
+            "auto_whatsapp": len(auto_wa_results)
+        })
 
         # Accumulate results across analyses (don't overwrite)
         all_results = session.get("results", [])
@@ -479,6 +594,7 @@ def upload_resume():
 
 @app.route("/verify-certificate", methods=["POST"])
 @login_required
+@roles_required("recruiter", "hr_admin", "admin")
 def verify_certificate():
     """Check if a certificate's SHA-256 hash exists on the blockchain AND
     matches the hash that was stored for this specific candidate."""
@@ -536,6 +652,7 @@ def verify_certificate():
 
 @app.route("/store-certificate", methods=["POST"])
 @login_required
+@roles_required("recruiter", "hr_admin", "admin")
 def store_certificate():
     """Store a certificate's SHA-256 hash on the blockchain and link it
     to the selected candidate."""
@@ -668,10 +785,13 @@ def analysis_history():
 
 @app.route("/delete-resume/<int:resume_id>", methods=["DELETE"])
 @login_required
+@roles_required("hr_admin", "admin")
 def delete_resume(resume_id):
     """Delete a single resume by ID (if it belongs to the logged-in user)."""
     try:
         user_id = session.get("user_id")
+        if user_id is None:
+            return jsonify({"error": "User not authenticated"}), 401
         db = get_db()
         
         # Verify ownership (only delete if this resume belongs to current user)
@@ -690,6 +810,7 @@ def delete_resume(resume_id):
         
         # Refresh session results
         session["results"] = get_user_resumes(user_id)
+        log_audit("resume_deleted", str(resume_id), {"deleted": 1})
         
         return jsonify({"message": "Resume deleted successfully"})
     except Exception as e:
@@ -698,10 +819,13 @@ def delete_resume(resume_id):
 
 @app.route("/delete-resumes/rejected", methods=["DELETE"])
 @login_required
+@roles_required("hr_admin", "admin")
 def delete_rejected_resumes():
     """Delete all resumes with rejected certificate status for the logged-in user."""
     try:
         user_id = session.get("user_id")
+        if user_id is None:
+            return jsonify({"error": "User not authenticated"}), 401
         db = get_db()
         
         # Delete all rejected resumes for this user
@@ -715,6 +839,7 @@ def delete_rejected_resumes():
         
         # Refresh session results
         session["results"] = get_user_resumes(user_id)
+        log_audit("resume_deleted_bulk_rejected", "rejected", {"deleted": deleted_count})
         
         return jsonify({"message": f"Deleted {deleted_count} rejected resume(s)"})
     except Exception as e:
@@ -723,10 +848,13 @@ def delete_rejected_resumes():
 
 @app.route("/delete-resumes/all", methods=["DELETE"])
 @login_required
+@roles_required("hr_admin", "admin")
 def delete_all_resumes():
     """Delete ALL resumes for the logged-in user (with confirmation)."""
     try:
         user_id = session.get("user_id")
+        if user_id is None:
+            return jsonify({"error": "User not authenticated"}), 401
         
         # Optional: check for confirmation token to prevent accidental deletion
         data = request.get_json() or {}
@@ -747,6 +875,7 @@ def delete_all_resumes():
         session["results"] = []
         session["total_resumes"] = 0
         session["total_certs"] = 0
+        log_audit("resume_deleted_all", "all", {"deleted": deleted_count})
         
         return jsonify({"message": f"Deleted all {deleted_count} resume(s)"})
     except Exception as e:
@@ -759,6 +888,7 @@ def delete_all_resumes():
 
 @app.route("/send-whatsapp", methods=["POST"])
 @login_required
+@roles_required("recruiter", "hr_admin", "admin")
 def send_whatsapp():
     """Send a WhatsApp certificate-request message to a candidate."""
     try:
@@ -787,6 +917,8 @@ def send_whatsapp():
             worker.update_stage(phone_clean, "whatsapp_sent",
                                 f"WhatsApp sent to {candidate_name}. Waiting for reply...")
 
+            log_audit("whatsapp_sent", phone_clean, {"candidate": candidate_name})
+
             return jsonify({
                 "message": f"WhatsApp sent to {phone_clean}!",
                 "phone": phone_clean,
@@ -801,6 +933,7 @@ def send_whatsapp():
 
 @app.route("/shortlist-notify", methods=["POST"])
 @login_required
+@roles_required("recruiter", "hr_admin", "admin")
 def shortlist_notify():
     """Notify shortlisted candidates via WhatsApp."""
     try:
@@ -823,6 +956,7 @@ def shortlist_notify():
             else:
                 errors.append(f"{name}: No phone number")
 
+        log_audit("shortlist_notified", "batch", {"notified": notified, "total": len(candidates)})
         return jsonify({
             "notified": notified,
             "total": len(candidates),
@@ -830,6 +964,62 @@ def shortlist_notify():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/candidate-action", methods=["POST"])
+@login_required
+@roles_required("recruiter", "hr_admin", "admin")
+def candidate_action():
+    """Track recruiter actions for shortlisted candidates."""
+    try:
+        data = request.get_json() or {}
+        action = data.get("action", "").strip().lower()
+        candidates = data.get("candidates", [])
+        if action not in {"invite", "request_docs", "hold", "reject"}:
+            return jsonify({"error": "Invalid action"}), 400
+        if not candidates:
+            return jsonify({"error": "No candidates provided."}), 400
+
+        log_audit("candidate_action", action, {
+            "action": action,
+            "count": len(candidates),
+            "candidates": candidates[:25]
+        })
+        return jsonify({"message": "Action logged", "action": action, "count": len(candidates)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/audit-summary")
+@login_required
+def audit_summary():
+    """Return lightweight audit summary and latest activity feed for UI panels."""
+    try:
+        user_id = session.get("user_id")
+        db = get_db()
+        rows = db.execute(
+            """
+            SELECT action, target, details, created_at
+            FROM audit_logs
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT 25
+            """,
+            (user_id,)
+        ).fetchall()
+        summary = {}
+        activity = []
+        for r in rows:
+            summary[r["action"]] = summary.get(r["action"], 0) + 1
+            activity.append({
+                "action": r["action"],
+                "target": r["target"],
+                "details": json_mod.loads(r["details"] or "{}"),
+                "created_at": r["created_at"]
+            })
+        return jsonify({"summary": summary, "activity": activity})
+    except Exception as e:
+        return jsonify({"summary": {}, "activity": [], "error": str(e)})
 
 
 @app.route("/whatsapp-webhook", methods=["POST"])

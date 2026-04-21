@@ -32,6 +32,7 @@
     <div class="nav-user">
       <div class="user-avatar" id="userAvatar"></div>
       <span class="user-name" id="userName">{{ user_name }}</span>
+      <span class="role-badge" id="userRoleBadge">{{ user_role }}</span>
       <button class="btn-logout" onclick="doLogout()" title="Sign out"><i class="fas fa-sign-out-alt"></i></button>
     </div>
     <button class="nav-burger" id="navBurger"><i class="fas fa-bars"></i></button>
@@ -50,6 +51,24 @@
     <div class="section-hero anim-fade" style="--d:0">
       <h1 class="hero-title">AI-Powered <span class="gradient-text">Resume Screening</span></h1>
       <p class="hero-sub">Upload resumes, define your ideal candidate, and let our TF-IDF engine rank them instantly.</p>
+    </div>
+
+    <div class="how-grid anim-fade" style="--d:0">
+      <div class="how-card">
+        <span class="how-step">Step 1</span>
+        <h4><i class="fas fa-upload"></i> Upload & Parse</h4>
+        <p>Bring multiple resumes and a role description. Candidate details and claims are auto-extracted.</p>
+      </div>
+      <div class="how-card">
+        <span class="how-step">Step 2</span>
+        <h4><i class="fas fa-ranking-star"></i> Hybrid Match</h4>
+        <p>Each candidate gets a blended score from TF-IDF relevance and semantic overlap for better ranking quality.</p>
+      </div>
+      <div class="how-card">
+        <span class="how-step">Step 3</span>
+        <h4><i class="fas fa-shield-check"></i> Verify Trust</h4>
+        <p>Certificate checks run through WhatsApp workflow and verification signals are tracked for recruiter decisions.</p>
+      </div>
     </div>
 
     <div class="grid-2col anim-fade" style="--d:1">
@@ -101,7 +120,7 @@
         </button>
 
         <!-- Analyze -->
-        <button class="btn-primary btn-full" id="btnAnalyze" disabled onclick="analyzeResumes()">
+        <button class="btn-primary btn-full" id="btnAnalyze" disabled onclick="analyzeResumes()" data-role-visible="recruiter,hr_admin,admin">
           <span class="btn-label"><i class="fas fa-sparkles"></i> Analyze Resumes</span>
           <span class="btn-loading" style="display:none">
             <span class="btn-spin"></span> Analyzing…
@@ -161,7 +180,7 @@
             </div>
           </div>
         </div>
-        <button class="btn-primary btn-full mt-1" id="btnSendWA" onclick="sendManualWhatsApp()">
+        <button class="btn-primary btn-full mt-1" id="btnSendWA" onclick="sendManualWhatsApp()" data-role-visible="recruiter,hr_admin,admin">
           <i class="fab fa-whatsapp"></i> Send WhatsApp Request
         </button>
       </div>
@@ -219,8 +238,29 @@
       </div>
     </div>
 
+    <div class="insight-row anim-fade" style="--d:2">
+      <div class="glass-card insight-card">
+        <div class="insight-title"><i class="fas fa-shield-heart"></i> Trust Insights</div>
+        <div class="insight-grid">
+          <div class="insight-item"><span>Verified</span><b id="iVerified">0</b></div>
+          <div class="insight-item"><span>Rejected</span><b id="iRejected">0</b></div>
+          <div class="insight-item"><span>Pending</span><b id="iPending">0</b></div>
+          <div class="insight-item"><span>Avg Trust</span><b id="iAvgTrust">0%</b></div>
+        </div>
+      </div>
+      <div class="glass-card insight-card">
+        <div class="insight-title"><i class="fas fa-chart-line"></i> Hiring Signals</div>
+        <div class="insight-grid">
+          <div class="insight-item"><span>WhatsApp Sent</span><b id="iWaSent">0</b></div>
+          <div class="insight-item"><span>High Match (>=70)</span><b id="iHighMatch">0</b></div>
+          <div class="insight-item"><span>Needs Review</span><b id="iNeedsReview">0</b></div>
+          <div class="insight-item"><span>Audit Events</span><b id="iAuditEvents">0</b></div>
+        </div>
+      </div>
+    </div>
+
     <!-- Filters + Table -->
-    <div class="glass-card anim-fade" style="--d:2">
+    <div class="glass-card anim-fade" style="--d:3">
       <div class="dash-toolbar">
         <h3><i class="fas fa-list-ol"></i> Candidate Ranking</h3>
         <div class="dash-filters">
@@ -235,11 +275,12 @@
               <option value="all">All</option>
               <option value="verified">Verified</option>
               <option value="pending">Pending</option>
+              <option value="rejected">Rejected</option>
             </select>
           </div>
           <button class="btn-ghost" onclick="exportCSV()"><i class="fas fa-download"></i> Export CSV</button>
-          <button class="btn-ghost btn-danger" onclick="deleteRejected()" title="Delete all rejected resumes"><i class="fas fa-trash"></i> Delete Rejected</button>
-          <button class="btn-ghost btn-danger" onclick="deleteAll()" title="Delete all resumes"><i class="fas fa-times"></i> Delete All</button>
+          <button class="btn-ghost btn-danger" onclick="deleteRejected()" title="Delete all rejected resumes" data-role-visible="hr_admin,admin"><i class="fas fa-trash"></i> Delete Rejected</button>
+          <button class="btn-ghost btn-danger" onclick="deleteAll()" title="Delete all resumes" data-role-visible="hr_admin,admin"><i class="fas fa-times"></i> Delete All</button>
         </div>
       </div>
       <div class="table-wrap">
@@ -283,8 +324,21 @@
         <h3><i class="fas fa-user-check"></i> Shortlisted Candidates</h3>
         <button class="btn-ghost" onclick="exportShortlistCSV()"><i class="fas fa-download"></i> Export CSV</button>
       </div>
+      <div class="action-center" data-role-visible="recruiter,hr_admin,admin">
+        <div class="action-title">Recruiter Action Center</div>
+        <div class="action-buttons">
+          <button class="btn-ghost" onclick="runShortlistAction('invite')"><i class="fas fa-calendar-check"></i> Send Interview Invite</button>
+          <button class="btn-ghost" onclick="runShortlistAction('request_docs')"><i class="fas fa-file-circle-plus"></i> Request Missing Docs</button>
+          <button class="btn-ghost" onclick="runShortlistAction('hold')"><i class="fas fa-pause-circle"></i> Mark On Hold</button>
+          <button class="btn-ghost btn-danger" onclick="runShortlistAction('reject')"><i class="fas fa-user-slash"></i> Mark Rejected</button>
+        </div>
+      </div>
       <div id="shortlistedList">
         <div class="empty-state" id="shortlistEmpty"><i class="fas fa-user-plus"></i><p>No candidates shortlisted yet</p><span>Go to Dashboard, select candidates using checkboxes, and click "Shortlist &amp; Notify".</span></div>
+      </div>
+      <div class="activity-feed-wrap">
+        <div class="action-title"><i class="fas fa-clock-rotate-left"></i> Recent Recruiter Activity</div>
+        <div id="activityFeed" class="activity-feed"></div>
       </div>
     </div>
   </section>
