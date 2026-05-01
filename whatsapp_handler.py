@@ -34,17 +34,19 @@ def _format_twilio_error(exc: Exception) -> str:
 
 
 def _get_client():
-    """Return the Twilio REST client (created once)."""
     global _client
     print("TWILIO SID:", TWILIO_ACCOUNT_SID)
     print("TWILIO AUTH:", bool(TWILIO_AUTH_TOKEN))
     print("TWILIO FROM:", TWILIO_WHATSAPP_FROM)
+
     if _client is None:
         try:
             from twilio.rest import Client
             _client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        except Exception:
+        except Exception as e:
+            print("Twilio client initialization failed:", e)
             _client = None
+
     return _client
 
 

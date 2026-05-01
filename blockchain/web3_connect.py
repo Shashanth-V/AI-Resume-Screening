@@ -143,8 +143,11 @@ CONTRACT_ABI = [
 
 def _get_web3():
     """Return a connected Web3 instance or None if Ganache is unreachable."""
-    w3 = Web3(Web3.HTTPProvider(GANACHE_URL))
-    if w3.is_connected():
+    if GANACHE_URL and "127.0.0.1" not in GANACHE_URL:
+        w3 = Web3(Web3.HTTPProvider(GANACHE_URL))
+    else:
+        w3 = None
+    if w3 and w3.is_connected():
         return w3
     return None
 
