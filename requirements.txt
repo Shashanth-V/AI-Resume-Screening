@@ -25,3 +25,6 @@ psycopg2-binary==2.9.9
 
 # Optional: For AWS S3 file storage
 # boto3==1.29.7
+
+# Testing & Development
+reportlab==4.0.9

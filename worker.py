@@ -15,6 +15,11 @@ import cert_verifier
 import whatsapp_handler
 import resume_matcher
 
+
+def _demo_mode_enabled() -> bool:
+    """Return True when the app should accept demo certificates as verified."""
+    return os.getenv("DEMO_MODE", "false").strip().lower() in {"1", "true", "yes", "on"}
+
 # Try importing blockchain module
 try:
     from blockchain import web3_connect
@@ -159,6 +164,7 @@ def process_certificate(phone: str, media_url: str, content_type: str,
     source = verification.get("verification_source", "none")
     is_authentic_raw = verification.get("is_authentic", False)
     confidence = verification.get("confidence_score", 0)
+    demo_mode = _demo_mode_enabled()
 
     # Strict policy: only accept certs that are source-verifiable AND
     # match what the candidate claimed in their resume.
@@ -176,11 +182,20 @@ def process_certificate(phone: str, media_url: str, content_type: str,
     claim_ok = True if not cert_claims else best_claim_score >= 65
     source_ok = source in {"coursera_api", "linkedin_api", "udemy_api", "credly_api", "verification_url"}
 
-    is_authentic = bool(is_authentic_raw and source_ok and claim_ok)
-    if not source_ok:
-        confidence = min(confidence, 25)
-    if not claim_ok:
-        confidence = min(confidence, 25)
+    if demo_mode:
+        # Demo mode is intentionally permissive so a live college demo can show
+        # the complete verified flow without relying on public issuer endpoints.
+        is_authentic = bool(is_authentic_raw or verification.get("file_hash"))
+        confidence = max(confidence, 90)
+        source_ok = True
+        claim_ok = True
+        source = "demo_mode"
+    else:
+        is_authentic = bool(is_authentic_raw and source_ok and claim_ok)
+        if not source_ok:
+            confidence = min(confidence, 25)
+        if not claim_ok:
+            confidence = min(confidence, 25)
 
     # ── Stage 4: Store on blockchain ──
     update_stage(phone_clean, "storing", "Storing on blockchain ledger...")
@@ -236,10 +251,12 @@ def process_certificate(phone: str, media_url: str, content_type: str,
         "tx_hash": tx_hash,
         "stored_on_chain": stored_on_chain,
         "verification_source": source,
+        "demo_mode": demo_mode,
         "verified_at": datetime.utcnow().isoformat(),
     }
 
-    update_stage(phone_clean, "complete", "Certificate verification complete.", cert_detail)
+    done_message = "Certificate verification complete (Demo Mode)." if demo_mode else "Certificate verification complete."
+    update_stage(phone_clean, "complete", done_message, cert_detail)
 
 
 def run_pipeline(phone: str, media_list: list, candidate_name: str = "", cert_claims: list = None):
@@ -270,7 +287,7 @@ def run_pipeline(phone: str, media_list: list, candidate_name: str = "", cert_cl
     
     update_stage(
         phone_clean, "complete",
-        f"All done! {authentic}/{total} certificates verified successfully."
+        f"All done! {authentic}/{total} certificates verified successfully." + (" (Demo Mode)" if _demo_mode_enabled() else "")
     )
     
     # Send ONE summary message with all results
