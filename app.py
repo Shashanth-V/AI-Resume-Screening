@@ -1220,7 +1220,13 @@ def ledger_data():
     except Exception as e:
         return jsonify({"records": [], "error": str(e)})
 
-
+@app.route("/test-whatsapp")
+def test_whatsapp():
+    result = whatsapp_handler.send_shortlist_notification(
+        "+917411052683",
+        "Test User"
+    )
+    return jsonify(result)
 # ──────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────
