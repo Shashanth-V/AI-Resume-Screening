@@ -292,6 +292,61 @@ def semantic_overlap_score(job_text: str, resume_text: str) -> float:
     return round(overlap * 100, 2)
 
 
+def skill_match_score(jd: str, resume: str) -> float:
+    """
+    Score resume based on matching tech skills against job description.
+    Scoring: 90-100% for high overlap (≥90%), proportional scaling for partial matches.
+    """
+    known_skills = [
+        # Languages
+        "python", "java", "javascript", "typescript", "cpp", "c++", "c#", "csharp",
+        "php", "ruby", "go", "rust", "kotlin", "swift", "scala", "r", "matlab",
+        # Frontend
+        "react", "vue", "angular", "html", "css", "webpack", "tailwind", "bootstrap",
+        # Backend
+        "node", "nodejs", "express", "django", "flask", "spring", "dotnet", ".net",
+        "fastapi", "golang", "gin", "rails", "sinatra",
+        # Databases
+        "mongodb", "mysql", "postgresql", "oracle", "redis", "elasticsearch",
+        "dynamodb", "cassandra", "firebase", "sql", "sqlite", "mariadb",
+        # DevOps & Cloud
+        "docker", "kubernetes", "aws", "azure", "gcp", "jenkins", "gitlab", "github",
+        "terraform", "ansible", "ci/cd", "nginx", "apache", "linux",
+        # Blockchain & Web3
+        "blockchain", "ethereum", "solidity", "web3", "smart contract", "hardhat",
+        "truffle", "ganache", "web3py",
+        # Data & AI
+        "machine learning", "ml", "ai", "tensorflow", "pytorch", "sklearn", "pandas",
+        "numpy", "spark", "hadoop", "etl", "analytics", "data science",
+        # Other Tools
+        "git", "jira", "agile", "scrum", "rest", "api", "grpc", "graphql",
+        "junit", "pytest", "jest", "mocha", "rspec", "testing", "tdd",
+        "distributed systems", "microservices", "nosql", "orm", "deployment"
+    ]
+    
+    jd_lower = jd.lower()
+    resume_lower = resume.lower()
+    
+    jd_skills = [s for s in known_skills if s in jd_lower]
+    resume_skills = [s for s in known_skills if s in resume_lower]
+    
+    if not jd_skills:
+        return 50.0  # Neutral if no skills found in JD
+    
+    overlap = len(set(jd_skills) & set(resume_skills))
+    overlap_ratio = overlap / len(jd_skills)
+    
+    # Scoring: 90-100% for high overlap (≥90%), proportional 0-90% for partial matches
+    if overlap_ratio >= 0.9:
+        # High overlap: scale 90-100
+        score = 90 + (overlap_ratio - 0.9) * 100
+    else:
+        # Partial overlap: scale 0-90 proportionally
+        score = overlap_ratio * 90
+    
+    return round(min(100, score), 2)
+
+
 def log_audit(action: str, target: str = "", details: dict | None = None):
     """Write user-scoped action logs for traceability and review."""
     user_id = session.get("user_id")
@@ -490,12 +545,15 @@ def upload_resume():
         for idx, (name, score) in enumerate(zip(filenames, similarities)):
             tfidf_score = round(float(score) * 100, 2)
             semantic_score = semantic_overlap_score(cleaned_jd, cleaned_resumes[idx])
-            hybrid_score = (0.4 * tfidf_score) + (0.6 * semantic_score)
+            skill_score = skill_match_score(cleaned_jd, cleaned_resumes[idx])
+            # Weighted hybrid: 30% TF-IDF, 30% semantic, 40% skill matching
+            hybrid_score = round((0.3 * tfidf_score) + (0.3 * semantic_score) + (0.4 * skill_score), 2)
             results.append({
                 "filename": name,
                 "score": hybrid_score,
                 "tfidf_score": tfidf_score,
-                "semantic_score": semantic_score
+                "semantic_score": semantic_score,
+                "skill_score": skill_score
             })
 
         results.sort(key=lambda x: x["score"], reverse=True)
