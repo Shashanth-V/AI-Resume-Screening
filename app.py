@@ -490,7 +490,7 @@ def upload_resume():
         for idx, (name, score) in enumerate(zip(filenames, similarities)):
             tfidf_score = round(float(score) * 100, 2)
             semantic_score = semantic_overlap_score(cleaned_jd, cleaned_resumes[idx])
-            hybrid_score = round((0.7 * tfidf_score) + (0.3 * semantic_score), 2)
+            hybrid_score = (0.4 * tfidf_score) + (0.6 * semantic_score)
             results.append({
                 "filename": name,
                 "score": hybrid_score,
