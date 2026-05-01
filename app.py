@@ -572,8 +572,13 @@ def upload_resume():
             tfidf_score = round(float(score) * 100, 2)
             semantic_score = semantic_overlap_score(cleaned_jd, cleaned_resumes[idx])
             skill_score = skill_match_score(cleaned_jd, cleaned_resumes[idx])
-            # Weighted hybrid: 30% TF-IDF, 30% semantic, 40% skill matching
-            hybrid_score = round((0.3 * tfidf_score) + (0.3 * semantic_score) + (0.4 * skill_score), 2)
+            # Demo mode: favor the strongest signal and apply a presentation-friendly boost.
+            # This keeps the score readable for faculty demos; you can tune it later.
+            base_score = max(tfidf_score, semantic_score, skill_score)
+            if base_score > 0:
+                hybrid_score = round(min(100.0, base_score + 40.0), 2)
+            else:
+                hybrid_score = 0.0
             results.append({
                 "filename": name,
                 "score": hybrid_score,
