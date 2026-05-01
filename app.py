@@ -298,30 +298,56 @@ def skill_match_score(jd: str, resume: str) -> float:
     Scoring: 90-100% for high overlap (≥90%), proportional scaling for partial matches.
     """
     known_skills = [
-        # Languages
-        "python", "java", "javascript", "typescript", "cpp", "c++", "c#", "csharp",
-        "php", "ruby", "go", "rust", "kotlin", "swift", "scala", "r", "matlab",
-        # Frontend
-        "react", "vue", "angular", "html", "css", "webpack", "tailwind", "bootstrap",
-        # Backend
-        "node", "nodejs", "express", "django", "flask", "spring", "dotnet", ".net",
-        "fastapi", "golang", "gin", "rails", "sinatra",
-        # Databases
-        "mongodb", "mysql", "postgresql", "oracle", "redis", "elasticsearch",
-        "dynamodb", "cassandra", "firebase", "sql", "sqlite", "mariadb",
-        # DevOps & Cloud
+        # Languages (Your core + popular)
+        "python", "java", "javascript", "typescript", "c", "c++", "cpp", "c#", "csharp",
+        "php", "ruby", "go", "rust", "kotlin", "swift", "scala", "r", "matlab", "perl",
+        
+        # Frontend (Your core + popular)
+        "react", "react.js", "vue", "angular", "html", "css", "webpack", "tailwind", 
+        "bootstrap", "sass", "less", "material ui", "next.js", "gatsby",
+        
+        # Backend (Your core + popular)
+        "node", "nodejs", "node.js", "express", "express.js", "django", "flask", 
+        "spring", "spring boot", "dotnet", ".net", "fastapi", "golang", "gin", 
+        "rails", "sinatra", "laravel", "asp.net",
+        
+        # Databases (Your core + popular)
+        "mongodb", "mysql", "postgresql", "postgres", "oracle", "redis", "elasticsearch",
+        "dynamodb", "cassandra", "firebase", "sql", "sqlite", "mariadb", "neo4j",
+        
+        # DevOps & Cloud (Your core + popular)
         "docker", "kubernetes", "aws", "azure", "gcp", "jenkins", "gitlab", "github",
-        "terraform", "ansible", "ci/cd", "nginx", "apache", "linux",
-        # Blockchain & Web3
-        "blockchain", "ethereum", "solidity", "web3", "smart contract", "hardhat",
-        "truffle", "ganache", "web3py",
-        # Data & AI
+        "terraform", "ansible", "ci/cd", "nginx", "apache", "linux", "jenkins",
+        "circleci", "travis ci", "docker compose",
+        
+        # Blockchain & Web3 (Your core + popular)
+        "blockchain", "ethereum", "solidity", "web3", "web3.js", "web3py", 
+        "smart contract", "hardhat", "truffle", "ganache", "remix", "metamask",
+        
+        # Data & AI/ML (popular)
         "machine learning", "ml", "ai", "tensorflow", "pytorch", "sklearn", "pandas",
-        "numpy", "spark", "hadoop", "etl", "analytics", "data science",
-        # Other Tools
-        "git", "jira", "agile", "scrum", "rest", "api", "grpc", "graphql",
-        "junit", "pytest", "jest", "mocha", "rspec", "testing", "tdd",
-        "distributed systems", "microservices", "nosql", "orm", "deployment"
+        "numpy", "spark", "hadoop", "etl", "analytics", "data science", "jupyter",
+        "scikit-learn", "keras",
+        
+        # Core Concepts & Fundamentals (Your core)
+        "dsa", "data structures", "algorithms", "oop", "oops", "dbms", "database management",
+        "computer networks", "networking", "os", "operating systems", "system design",
+        "distributed systems", "microservices",
+        
+        # Tools & IDEs (Your core + popular)
+        "git", "github", "gitlab", "jira", "vs code", "vscode", "intellij", "eclipse",
+        "postman", "swagger", "jwt", "oauth", "auth0",
+        
+        # Methodologies & Testing
+        "agile", "scrum", "kanban", "rest", "api", "grpc", "graphql", "soap",
+        "junit", "pytest", "jest", "mocha", "rspec", "testing", "tdd", "bdd",
+        "unit testing", "integration testing", "e2e", "end to end",
+        
+        # Additional Popular Tech
+        "typescript", "python", "react native", "flutter", "swift", "kotlin",
+        "apache kafka", "rabbitmq", "message queue", "websocket", "socket.io",
+        "stripe", "payment gateway", "npm", "yarn", "maven", "gradle",
+        "cors", "ssl", "https", "encryption", "hashing"
     ]
     
     jd_lower = jd.lower()
